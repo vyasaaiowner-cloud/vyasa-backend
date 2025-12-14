@@ -11,6 +11,13 @@ import { LoginDto } from './dto/login.dto';
 import { SendOtpDto } from './dto/send-otp.dto';
 import { Role, OtpType } from '@prisma/client';
 import * as bcrypt from 'bcrypt';
+import {
+  normalizeE164,
+  normalizeEmail,
+  getContact,
+  getContactType,
+} from './validators/phone-and-email.validator';
+import { OtpSecurityService } from './services/otp-security.service';
 
 // Recommended: keep SUPER_ADMIN inside a "platform" school for DB integrity + easy scoping.
 // Create this School once (seed/migration/manual):
@@ -22,64 +29,104 @@ export class AuthService {
   constructor(
     private prisma: PrismaService,
     private jwt: JwtService,
+    private otpSecurity: OtpSecurityService,
   ) {}
 
-  async sendOtp(dto: SendOtpDto) {
-    const contact = dto.email || (dto.countryCode + dto.mobileNo);
-    const type = dto.email ? OtpType.EMAIL : OtpType.PHONE;
+  async sendOtp(dto: SendOtpDto, ipAddress?: string) {
+    // Normalize inputs
+    try {
+      const email = normalizeEmail(dto.email);
+      const phoneE164 = !email ? normalizeE164(dto.countryCode, dto.mobileNo) : null;
+      const contact = email || phoneE164!;
+      const type = getContactType(dto.email);
 
-    // Generate 6-digit OTP
-    const code = Math.floor(100000 + Math.random() * 900000).toString();
-    const codeHash = await bcrypt.hash(code, 10);
-    const expiresAt = new Date(Date.now() + 5 * 60 * 1000); // 5 minutes
+      // Check rate limit (by contact + IP)
+      if (ipAddress) {
+        await this.otpSecurity.checkRateLimit(contact, ipAddress);
+        await this.otpSecurity.recordOtpRequest(contact, ipAddress);
+      }
 
-    // Invalidate previous OTPs for this contact
-    await this.prisma.otp.updateMany({
-      where: { contact, type, used: false },
-      data: { used: true },
-    });
+      // Generate 6-digit OTP
+      const code = Math.floor(100000 + Math.random() * 900000).toString();
+      const codeHash = await bcrypt.hash(code, 10);
+      const expiresAt = new Date(Date.now() + 5 * 60 * 1000); // 5 minutes
 
-    await this.prisma.otp.create({
-      data: {
-        contact,
-        type,
-        codeHash,
-        expiresAt,
-      },
-    });
+      // Invalidate previous OTPs for this contact
+      await this.prisma.otp.updateMany({
+        where: { contact, type, used: false },
+        data: { used: true },
+      });
 
-    // For MVP, log the OTP instead of sending SMS/Email
-    console.log(`OTP for ${contact} (${type}): ${code}`);
+      await this.prisma.otp.create({
+        data: {
+          contact,
+          type,
+          codeHash,
+          expiresAt,
+        },
+      });
 
-    return { message: 'OTP sent successfully' };
+      // For MVP, log the OTP instead of sending SMS/Email
+      console.log(`OTP for ${contact} (${type}): ${code}`);
+
+      return { message: 'OTP sent successfully' };
+    } catch (error) {
+      if (error instanceof BadRequestException) throw error;
+      throw new BadRequestException(
+        error instanceof Error ? error.message : 'Invalid input',
+      );
+    }
   }
 
   async register(dto: RegisterDto) {
-    // Validate: either email or phone must be provided
-    if (!dto.email && (!dto.countryCode || !dto.mobileNo)) {
-      throw new BadRequestException('Either email or phone must be provided');
-    }
+    try {
+      // Validate: either email or phone must be provided
+      if (!dto.email && (!dto.countryCode || !dto.mobileNo)) {
+        throw new BadRequestException('Either email or phone must be provided');
+      }
 
-    const email = dto.email?.toLowerCase();
-    const contact = email || (dto.countryCode + dto.mobileNo);
-    const type = email ? OtpType.EMAIL : OtpType.PHONE;
+      // Normalize inputs
+      const email = normalizeEmail(dto.email);
+      const phoneE164 = normalizeE164(dto.countryCode, dto.mobileNo);
+      const contact = email || phoneE164;
+      const type = getContactType(dto.email);
 
-    // Verify OTP
-    const otpRecord = await this.prisma.otp.findFirst({
-      where: { contact, type, used: false },
-    });
-    if (!otpRecord || otpRecord.expiresAt < new Date() || !(await bcrypt.compare(dto.otp, otpRecord.codeHash))) {
-      throw new BadRequestException('Invalid or expired OTP');
-    }
+      // Verify OTP
+      const otpRecord = await this.prisma.otp.findFirst({
+        where: { contact, type, used: false },
+      });
 
-    const existingPhone = await this.prisma.user.findUnique({ where: { phoneE164: dto.countryCode + dto.mobileNo } });
-    if (existingPhone) throw new BadRequestException('Phone already exists');
+      if (!otpRecord) {
+        throw new BadRequestException('OTP not found or expired');
+      }
 
-    // Only check email if provided
-    if (email) {
-      const existingEmail = await this.prisma.user.findUnique({ where: { email } });
-      if (existingEmail) throw new BadRequestException('Email already exists');
-    }
+      if (otpRecord.expiresAt < new Date()) {
+        throw new BadRequestException('OTP expired');
+      }
+
+      // Check attempt limit before verifying
+      await this.otpSecurity.checkAttemptLimit(otpRecord.id);
+
+      // Verify OTP code
+      const isValidOtp = await bcrypt.compare(dto.otp, otpRecord.codeHash);
+      if (!isValidOtp) {
+        await this.otpSecurity.recordFailedAttempt(otpRecord.id);
+        throw new BadRequestException('Invalid OTP');
+      }
+
+      // Check if phone already exists
+      const existingPhone = await this.prisma.user.findUnique({
+        where: { phoneE164 },
+      });
+      if (existingPhone) throw new BadRequestException('Phone already exists');
+
+      // Only check email if provided
+      if (email) {
+        const existingEmail = await this.prisma.user.findUnique({
+          where: { email },
+        });
+        if (existingEmail) throw new BadRequestException('Email already exists');
+      }
 
     // Enforce schoolId rules
     // - SUPER_ADMIN: auto-assign platform school
@@ -125,10 +172,14 @@ export class AuthService {
       data: { used: true },
     });
 
+    const phoneCode = dto.countryCode.startsWith('+')
+      ? dto.countryCode
+      : '+' + dto.countryCode;
+
     const user = await this.prisma.user.create({
       data: {
-        phoneE164: dto.countryCode + dto.mobileNo,
-        phoneCode: dto.countryCode,
+        phoneE164,
+        phoneCode,
         phoneNumber: dto.mobileNo,
         email: email ?? null,
         emailVerified: type === OtpType.EMAIL,
@@ -151,48 +202,75 @@ export class AuthService {
     });
 
     return user;
+    } catch (error) {
+      if (error instanceof BadRequestException) throw error;
+      throw new BadRequestException(
+        error instanceof Error ? error.message : 'Registration failed',
+      );
+    }
   }
 
-  async login(dto: LoginDto) {
-    // Validate: either email or phone must be provided
-    if (!dto.email && (!dto.countryCode || !dto.mobileNo)) {
-      throw new BadRequestException('Either email or phone must be provided');
+  async login(dto: LoginDto, ipAddress?: string) {
+    try {
+      // Validate: either email or phone must be provided
+      if (!dto.email && (!dto.countryCode || !dto.mobileNo)) {
+        throw new BadRequestException('Either email or phone must be provided');
+      }
+
+      // Normalize inputs
+      const email = normalizeEmail(dto.email);
+      const phoneE164 = !email ? normalizeE164(dto.countryCode, dto.mobileNo) : null;
+      const contact = email || phoneE164!;
+      const type = getContactType(dto.email);
+
+      // Verify OTP
+      const otpRecord = await this.prisma.otp.findFirst({
+        where: { contact, type, used: false },
+      });
+
+      if (!otpRecord) throw new UnauthorizedException('OTP not found or expired');
+
+      if (otpRecord.expiresAt < new Date()) {
+        throw new UnauthorizedException('OTP expired');
+      }
+
+      // Check attempt limit before verifying
+      await this.otpSecurity.checkAttemptLimit(otpRecord.id);
+
+      // Verify OTP code
+      const isValidOtp = await bcrypt.compare(dto.otp, otpRecord.codeHash);
+      if (!isValidOtp) {
+        await this.otpSecurity.recordFailedAttempt(otpRecord.id);
+        throw new UnauthorizedException('Invalid OTP');
+      }
+
+      // Find user by phone or email based on type
+      const user = type === OtpType.PHONE
+        ? await this.prisma.user.findUnique({ where: { phoneE164: contact } })
+        : await this.prisma.user.findUnique({ where: { email: contact } });
+      if (!user) throw new UnauthorizedException('User not found');
+
+      // Mark OTP as used
+      await this.prisma.otp.update({
+        where: { id: otpRecord.id },
+        data: { used: true },
+      });
+
+      const payload = {
+        sub: user.id,
+        phone: user.phoneCode + user.phoneNumber,
+        role: user.role,
+        schoolId: user.schoolId,
+      };
+
+      const accessToken = await this.jwt.signAsync(payload);
+      return { accessToken };
+    } catch (error) {
+      if (error instanceof UnauthorizedException) throw error;
+      throw new UnauthorizedException(
+        error instanceof Error ? error.message : 'Login failed',
+      );
     }
-
-    const email = dto.email?.toLowerCase();
-    const contact = email || (dto.countryCode + dto.mobileNo);
-    const type = email ? OtpType.EMAIL : OtpType.PHONE;
-
-    // Verify OTP
-    const otpRecord = await this.prisma.otp.findFirst({
-      where: { contact, type, used: false },
-    });
-
-    if (!otpRecord || otpRecord.expiresAt < new Date() || !(await bcrypt.compare(dto.otp, otpRecord.codeHash))) {
-      throw new UnauthorizedException('Invalid or expired OTP');
-    }
-
-    // Find user by phone or email based on type
-    const user = otpRecord.type === OtpType.PHONE
-      ? await this.prisma.user.findUnique({ where: { phoneE164: contact } })
-      : await this.prisma.user.findUnique({ where: { email: contact.toLowerCase() } });
-    if (!user) throw new UnauthorizedException('User not found');
-
-    // Mark OTP as used
-    await this.prisma.otp.update({
-      where: { id: otpRecord.id },
-      data: { used: true },
-    });
-
-    const payload = {
-      sub: user.id,
-      phone: user.phoneCode + user.phoneNumber,
-      role: user.role,
-      schoolId: user.schoolId,
-    };
-
-    const accessToken = await this.jwt.signAsync(payload);
-    return { accessToken };
   }
 
   // helper for protecting "super admin only" registration flows later

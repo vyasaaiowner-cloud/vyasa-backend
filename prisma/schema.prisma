@@ -247,14 +247,26 @@ model AdmissionEnquiry {
 }
 
 model Otp {
-  id        String   @id @default(cuid())
-  contact   String   // E.164 for phone, lowercase email for email
-  type      OtpType
-  codeHash  String
-  expiresAt DateTime
-  used      Boolean  @default(false)
-  createdAt DateTime @default(now())
+  id           String   @id @default(cuid())
+  contact      String   // E.164 for phone, lowercase email for email
+  type         OtpType
+  codeHash     String
+  expiresAt    DateTime
+  used         Boolean  @default(false)
+  attempts     Int      @default(0)  // Track failed verification attempts
+  createdAt    DateTime @default(now())
 
   @@index([contact, type])
   @@index([expiresAt])
+}
+
+model OtpRateLimit {
+  id        String   @id @default(cuid())
+  contact   String   // phone or email
+  ipAddress String
+  count     Int      @default(1)
+  expiresAt DateTime // rate limit window expiry
+  createdAt DateTime @default(now())
+
+  @@unique([contact, ipAddress])
 }
