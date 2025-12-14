@@ -9,7 +9,8 @@ import { JwtService } from '@nestjs/jwt';
 import { RegisterDto } from './dto/register.dto';
 import { LoginDto } from './dto/login.dto';
 import { SendOtpDto } from './dto/send-otp.dto';
-import { Role } from '@prisma/client';
+import { Role, OtpType } from '@prisma/client';
+import * as bcrypt from 'bcrypt';
 
 // Recommended: keep SUPER_ADMIN inside a "platform" school for DB integrity + easy scoping.
 // Create this School once (seed/migration/manual):
@@ -25,15 +26,16 @@ export class AuthService {
 
   async sendOtp(dto: SendOtpDto) {
     const contact = dto.email || (dto.countryCode + dto.mobileNo);
-    const type = dto.email ? 'email' : 'phone';
+    const type = dto.email ? OtpType.EMAIL : OtpType.PHONE;
 
     // Generate 6-digit OTP
     const code = Math.floor(100000 + Math.random() * 900000).toString();
+    const codeHash = await bcrypt.hash(code, 10);
     const expiresAt = new Date(Date.now() + 5 * 60 * 1000); // 5 minutes
 
     // Invalidate previous OTPs for this contact
     await this.prisma.otp.updateMany({
-      where: { contact, used: false },
+      where: { contact, type, used: false },
       data: { used: true },
     });
 
@@ -41,7 +43,7 @@ export class AuthService {
       data: {
         contact,
         type,
-        code,
+        codeHash,
         expiresAt,
       },
     });
@@ -54,23 +56,27 @@ export class AuthService {
 
   async register(dto: RegisterDto) {
     const contact = dto.email || (dto.countryCode + dto.mobileNo);
+    const type = dto.email ? OtpType.EMAIL : OtpType.PHONE;
 
     // Verify OTP
     const otpRecord = await this.prisma.otp.findFirst({
-      where: { contact: contact, code: dto.otp, used: false },
+      where: { contact, type, used: false },
     });
-    if (!otpRecord || otpRecord.expiresAt < new Date()) {
+    if (!otpRecord || otpRecord.expiresAt < new Date() || !(await bcrypt.compare(dto.otp, otpRecord.codeHash))) {
       throw new BadRequestException('Invalid or expired OTP');
     }
 
-    const existing = await this.prisma.user.findUnique({ where: { phoneNumber: dto.mobileNo } });
-    if (existing) throw new BadRequestException('Phone already exists');
+    const existingPhone = await this.prisma.user.findUnique({ where: { phoneE164: dto.countryCode + dto.mobileNo } });
+    if (existingPhone) throw new BadRequestException('Phone already exists');
+
+    const existingEmail = await this.prisma.user.findUnique({ where: { email: dto.email.toLowerCase() } });
+    if (existingEmail) throw new BadRequestException('Email already exists');
 
     // Enforce schoolId rules
     // - SUPER_ADMIN: auto-assign platform school
     // - Others: must provide schoolId
     const schoolId =
-      dto.role === Role.SUPER_ADMIN ? PLATFORM_SCHOOL_ID : dto.schoolId;
+      dto.role === Role.SUPER_ADMIN ? PLATFORM_SCHOOL_ID : dto.schoolId!;
 
     if (dto.role !== Role.SUPER_ADMIN && !schoolId) {
       throw new BadRequestException(
@@ -112,18 +118,22 @@ export class AuthService {
 
     const user = await this.prisma.user.create({
       data: {
+        phoneE164: dto.countryCode + dto.mobileNo,
         phoneCode: dto.countryCode,
         phoneNumber: dto.mobileNo,
         email: dto.email.toLowerCase(),
+        emailVerified: type === OtpType.EMAIL,
         name: dto.name.trim(),
         role: dto.role,
-        schoolId: schoolId!, // ALWAYS string now
+        schoolId: schoolId, // Now optional
       },
       select: {
         id: true,
+        phoneE164: true,
         phoneCode: true,
         phoneNumber: true,
         email: true,
+        emailVerified: true,
         name: true,
         role: true,
         schoolId: true,
@@ -136,20 +146,21 @@ export class AuthService {
 
   async login(dto: LoginDto) {
     const contact = dto.email || (dto.countryCode + dto.mobileNo);
+    const type = dto.email ? OtpType.EMAIL : OtpType.PHONE;
 
     // Verify OTP
     const otpRecord = await this.prisma.otp.findFirst({
-      where: { contact, code: dto.otp, used: false },
+      where: { contact, type, used: false },
     });
 
-    if (!otpRecord || otpRecord.expiresAt < new Date()) {
+    if (!otpRecord || otpRecord.expiresAt < new Date() || !(await bcrypt.compare(dto.otp, otpRecord.codeHash))) {
       throw new UnauthorizedException('Invalid or expired OTP');
     }
 
     // Find user by phone or email based on type
-    const user = otpRecord.type === 'phone'
-      ? await this.prisma.user.findFirst({ where: { phoneNumber: contact.slice(-10) } })
-      : await this.prisma.user.findUnique({ where: { email: contact } });
+    const user = otpRecord.type === OtpType.PHONE
+      ? await this.prisma.user.findUnique({ where: { phoneE164: contact } })
+      : await this.prisma.user.findUnique({ where: { email: contact.toLowerCase() } });
     if (!user) throw new UnauthorizedException('User not found');
 
     // Mark OTP as used

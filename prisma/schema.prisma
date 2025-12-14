@@ -20,6 +20,11 @@ enum AttendanceStatus {
   LATE
 }
 
+enum OtpType {
+  PHONE
+  EMAIL
+}
+
 model School {
   id        String   @id @default(cuid())
   name      String
@@ -41,22 +46,26 @@ model School {
 }
 
 model User {
-  id        String   @id @default(cuid())
-  phoneCode String?
-  phoneNumber String   @unique
-  email     String   @unique
-  name      String
-  role      Role
-  schoolId  String
-  school    School   @relation(fields: [schoolId], references: [id])
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id          String   @id @default(cuid())
 
-  // If role=TEACHER, this user may have a Teacher profile
+  phoneCode   String
+  phoneNumber String
+  phoneE164   String   @unique
+
+  email       String?  @unique
+  emailVerified Boolean @default(false)
+
+  name        String
+  role        Role
+
+  schoolId    String
+  school      School   @relation(fields: [schoolId], references: [id])
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
   teacherProfile Teacher?
-
-  // If role=PARENT, link to students via join table
-  parentLinks ParentStudent[] @relation("ParentLinks")
+  parentLinks    ParentStudent[] @relation("ParentLinks")
 
   @@index([schoolId])
   @@index([role])
@@ -124,7 +133,7 @@ model Attendance {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  @@unique([studentId, date])
+  @@unique([studentId, date, schoolId])
   @@index([schoolId, date])
   @@index([studentId, date])
 }
@@ -173,7 +182,7 @@ model FeePlan {
   schoolId  String
   school    School  @relation(fields: [schoolId], references: [id])
   name      String
-  amount    Float
+  amount    Decimal @db.Decimal(10,2)
   frequency String
   className String?
   createdAt DateTime @default(now())
@@ -192,7 +201,7 @@ model Invoice {
   student   Student  @relation(fields: [studentId], references: [id])
   feePlanId String
   feePlan   FeePlan  @relation(fields: [feePlanId], references: [id])
-  amount    Float
+  amount    Decimal @db.Decimal(10,2)
   dueDate   DateTime
   status    String
   createdAt DateTime @default(now())
@@ -210,7 +219,7 @@ model Payment {
   school        School   @relation(fields: [schoolId], references: [id])
   invoiceId     String
   invoice       Invoice  @relation(fields: [invoiceId], references: [id])
-  amount        Float
+  amount        Decimal @db.Decimal(10,2)
   method        String
   transactionId String   @unique
   status        String
@@ -239,12 +248,13 @@ model AdmissionEnquiry {
 
 model Otp {
   id        String   @id @default(cuid())
-  contact   String
-  type      String   // 'phone' or 'email'
-  code      String
+  contact   String   // E.164 for phone, lowercase email for email
+  type      OtpType
+  codeHash  String
   expiresAt DateTime
   used      Boolean  @default(false)
   createdAt DateTime @default(now())
 
-  @@index([contact])
+  @@index([contact, type])
+  @@index([expiresAt])
 }
