@@ -55,8 +55,14 @@ export class AuthService {
   }
 
   async register(dto: RegisterDto) {
-    const contact = dto.email || (dto.countryCode + dto.mobileNo);
-    const type = dto.email ? OtpType.EMAIL : OtpType.PHONE;
+    // Validate: either email or phone must be provided
+    if (!dto.email && (!dto.countryCode || !dto.mobileNo)) {
+      throw new BadRequestException('Either email or phone must be provided');
+    }
+
+    const email = dto.email?.toLowerCase();
+    const contact = email || (dto.countryCode + dto.mobileNo);
+    const type = email ? OtpType.EMAIL : OtpType.PHONE;
 
     // Verify OTP
     const otpRecord = await this.prisma.otp.findFirst({
@@ -69,8 +75,11 @@ export class AuthService {
     const existingPhone = await this.prisma.user.findUnique({ where: { phoneE164: dto.countryCode + dto.mobileNo } });
     if (existingPhone) throw new BadRequestException('Phone already exists');
 
-    const existingEmail = await this.prisma.user.findUnique({ where: { email: dto.email.toLowerCase() } });
-    if (existingEmail) throw new BadRequestException('Email already exists');
+    // Only check email if provided
+    if (email) {
+      const existingEmail = await this.prisma.user.findUnique({ where: { email } });
+      if (existingEmail) throw new BadRequestException('Email already exists');
+    }
 
     // Enforce schoolId rules
     // - SUPER_ADMIN: auto-assign platform school
@@ -121,11 +130,11 @@ export class AuthService {
         phoneE164: dto.countryCode + dto.mobileNo,
         phoneCode: dto.countryCode,
         phoneNumber: dto.mobileNo,
-        email: dto.email.toLowerCase(),
+        email: email ?? null,
         emailVerified: type === OtpType.EMAIL,
         name: dto.name.trim(),
         role: dto.role,
-        schoolId: schoolId, // Now optional
+        schoolId: schoolId, // Required by schema; SUPER_ADMIN auto-assigned to platform school
       },
       select: {
         id: true,
@@ -145,8 +154,14 @@ export class AuthService {
   }
 
   async login(dto: LoginDto) {
-    const contact = dto.email || (dto.countryCode + dto.mobileNo);
-    const type = dto.email ? OtpType.EMAIL : OtpType.PHONE;
+    // Validate: either email or phone must be provided
+    if (!dto.email && (!dto.countryCode || !dto.mobileNo)) {
+      throw new BadRequestException('Either email or phone must be provided');
+    }
+
+    const email = dto.email?.toLowerCase();
+    const contact = email || (dto.countryCode + dto.mobileNo);
+    const type = email ? OtpType.EMAIL : OtpType.PHONE;
 
     // Verify OTP
     const otpRecord = await this.prisma.otp.findFirst({

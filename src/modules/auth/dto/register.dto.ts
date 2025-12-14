@@ -29,7 +29,8 @@ export class RegisterDto {
   @MinLength(2)
   name: string;
 
-  @ApiProperty({ default: 'john.doe@example.com' })
+  @ApiProperty({ default: 'john.doe@example.com', required: false })
+  @IsOptional()
   @IsEmail()
-  email: string;
+  email?: string;
 }
