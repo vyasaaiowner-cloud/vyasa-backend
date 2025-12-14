@@ -6,6 +6,11 @@ import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger';
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
 
+  // ✅ Trust proxy (required if behind Nginx/Render/Cloudflare)
+  // This ensures req.ip and x-forwarded-for headers are correctly parsed
+  const expressApp = app.getHttpAdapter().getInstance();
+  expressApp.set('trust proxy', 1);
+
   // ✅ Validation
   app.useGlobalPipes(
     new ValidationPipe({

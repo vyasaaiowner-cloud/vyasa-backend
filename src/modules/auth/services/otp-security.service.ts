@@ -17,9 +17,6 @@ export class OtpSecurityService {
    */
   async checkRateLimit(contact: string, ipAddress: string): Promise<void> {
     const now = new Date();
-    const windowStart = new Date(
-      now.getTime() - RATE_LIMIT_WINDOW_MINUTES * 60 * 1000,
-    );
 
     const rateLimit = await this.prisma.otpRateLimit.findUnique({
       where: { contact_ipAddress: { contact, ipAddress } },
@@ -45,19 +42,34 @@ export class OtpSecurityService {
       now.getTime() + RATE_LIMIT_WINDOW_MINUTES * 60 * 1000,
     );
 
-    await this.prisma.otpRateLimit.upsert({
+    const existing = await this.prisma.otpRateLimit.findUnique({
       where: { contact_ipAddress: { contact, ipAddress } },
-      create: {
-        contact,
-        ipAddress,
-        count: 1,
-        expiresAt: windowExpiry,
-      },
-      update: {
-        count: { increment: 1 },
-        expiresAt: windowExpiry,
-      },
     });
+
+    // If window expired, reset count to 1. Otherwise increment.
+    if (existing && existing.expiresAt < now) {
+      await this.prisma.otpRateLimit.update({
+        where: { contact_ipAddress: { contact, ipAddress } },
+        data: {
+          count: 1,
+          expiresAt: windowExpiry,
+        },
+      });
+    } else {
+      await this.prisma.otpRateLimit.upsert({
+        where: { contact_ipAddress: { contact, ipAddress } },
+        create: {
+          contact,
+          ipAddress,
+          count: 1,
+          expiresAt: windowExpiry,
+        },
+        update: {
+          count: { increment: 1 },
+          expiresAt: windowExpiry,
+        },
+      });
+    }
   }
 
   /**

@@ -56,10 +56,12 @@ export function normalizeEmail(email: string | undefined): string | null {
 /**
  * Determine contact type from email or phone
  * @param email - Email address or undefined
- * @returns 'EMAIL' if email provided, 'PHONE' otherwise
+ * @returns OtpType.EMAIL if email provided, OtpType.PHONE otherwise
  */
-export function getContactType(email: string | undefined): 'EMAIL' | 'PHONE' {
-  return email ? 'EMAIL' : 'PHONE';
+import { OtpType } from '@prisma/client';
+
+export function getContactType(email: string | undefined): OtpType {
+  return email ? OtpType.EMAIL : OtpType.PHONE;
 }
 
 /**
