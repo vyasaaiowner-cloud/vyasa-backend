@@ -1,4 +1,4 @@
-import { IsEnum, IsOptional, IsString, IsPhoneNumber, IsEmail, MinLength } from 'class-validator';
+import { IsEnum, IsOptional, IsString, IsEmail, MinLength, ValidateIf } from 'class-validator';
 import { Role } from '@prisma/client';
 import { ApiProperty } from '@nestjs/swagger';
 
@@ -33,6 +33,7 @@ export class RegisterDto {
 
   @ApiProperty({ default: 'john.doe@example.com', required: false })
   @IsOptional()
+  @ValidateIf((o) => o.email !== '' && o.email !== null && o.email !== undefined)
   @IsEmail()
   email?: string;
 }

@@ -36,8 +36,8 @@ export class AuthService {
     // Normalize inputs
     try {
       // Validate: either email OR phone (not both, not neither)
-      const hasEmail = !!dto.email && dto.email.trim() !== '';
-      const hasPhone = !!dto.countryCode && !!dto.mobileNo;
+      const hasEmail = dto.email !== undefined && dto.email !== null && dto.email.trim() !== '';
+      const hasPhone = !!dto.countryCode && !!dto.mobileNo && dto.mobileNo.trim() !== '';
 
       if (!hasEmail && !hasPhone) {
         throw new BadRequestException('Either email or phone must be provided');
@@ -47,10 +47,10 @@ export class AuthService {
         throw new BadRequestException('Provide either email or phone, not both');
       }
 
-      const email = normalizeEmail(dto.email);
+      const email = hasEmail ? normalizeEmail(dto.email) : null;
       const phoneE164 = hasPhone ? normalizeE164(dto.countryCode!, dto.mobileNo!) : null;
       const contact = email || phoneE164!;
-      const type = getContactType(dto.email);
+      const type = hasEmail ? OtpType.EMAIL : OtpType.PHONE;
 
       // Check rate limit (by contact + IP)
       if (ipAddress) {
@@ -93,8 +93,8 @@ export class AuthService {
   async register(dto: RegisterDto) {
     try {
       // Validate: either email OR phone (not both, not neither)
-      const hasEmail = !!dto.email && dto.email.trim() !== '';
-      const hasPhone = !!dto.countryCode && !!dto.mobileNo;
+      const hasEmail = dto.email !== undefined && dto.email !== null && dto.email.trim() !== '';
+      const hasPhone = !!dto.countryCode && !!dto.mobileNo && dto.mobileNo.trim() !== '';
 
       if (!hasEmail && !hasPhone) {
         throw new BadRequestException('Either email or phone must be provided');
@@ -105,10 +105,10 @@ export class AuthService {
       }
 
       // Normalize inputs
-      const email = normalizeEmail(dto.email);
+      const email = hasEmail ? normalizeEmail(dto.email) : null;
       const phoneE164 = hasPhone ? normalizeE164(dto.countryCode!, dto.mobileNo!) : null;
       const contact = email || phoneE164!;
-      const type = getContactType(dto.email);
+      const type = hasEmail ? OtpType.EMAIL : OtpType.PHONE;
 
       // Verify OTP
       const otpRecord = await this.prisma.otp.findFirst({
