@@ -1,4 +1,4 @@
-import { IsEmail, IsString, MinLength } from 'class-validator';
+import { IsEmail, IsString, IsPhoneNumber, MinLength } from 'class-validator';
 
 export class CreateSchoolDto {
   @IsString()
@@ -11,4 +11,11 @@ export class CreateSchoolDto {
 
   @IsEmail()
   adminEmail: string;
+
+  @IsString()
+  @MinLength(2)
+  adminName: string;
+
+  @IsPhoneNumber()
+  adminPhone: string;
 }

@@ -2,7 +2,7 @@ import { Role } from '@prisma/client';
 
 export type RequestUser = {
   sub: string;           // userId
-  email: string;
+  phone: string;
   role: Role;
   schoolId?: string | null;
 };

@@ -14,65 +14,235 @@ enum Role {
   PARENT
 }
 
+enum AttendanceStatus {
+  PRESENT
+  ABSENT
+  LATE
+}
+
 model School {
   id        String   @id @default(cuid())
   name      String
-  code      String   @unique // short unique code for school (tenant key)
+  code      String   @unique
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  users     User[]
-  students  Student[]
-  teachers  Teacher[]
+  users      User[]
+  students   Student[]
+  teachers   Teacher[]
   attendance Attendance[]
+  profile    SchoolProfile?
+  gallery    SchoolGallery[]
+  announcements Announcement[]
+  feePlans   FeePlan[]
+  invoices   Invoice[]
+  payments   Payment[]
+  enquiries  AdmissionEnquiry[]
 }
 
 model User {
   id        String   @id @default(cuid())
+  phone     String   @unique
   email     String   @unique
-  password  String
+  name      String
   role      Role
-  schoolId  String?
-  school    School?  @relation(fields: [schoolId], references: [id])
+  schoolId  String
+  school    School   @relation(fields: [schoolId], references: [id])
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+
+  // If role=TEACHER, this user may have a Teacher profile
+  teacherProfile Teacher?
+
+  // If role=PARENT, link to students via join table
+  parentLinks ParentStudent[] @relation("ParentLinks")
+
+  @@index([schoolId])
+  @@index([role])
 }
 
 model Student {
-  id        String   @id @default(cuid())
-  schoolId  String
-  school    School   @relation(fields: [schoolId], references: [id])
-  name      String
-  className String
-  section   String?
-  rollNo    String?
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id         String   @id @default(cuid())
+  name       String
+  className  String
+  section    String
+  rollNo     Int
+  schoolId   String
+  school     School   @relation(fields: [schoolId], references: [id])
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
 
+  // Parents mapped through join table
+  parents ParentStudent[]
+
+  // Attendance records
   attendance Attendance[]
+
+  // Invoices
+  invoices Invoice[]
+
+  @@unique([schoolId, className, section, rollNo])
+  @@index([schoolId, className, section])
+}
+
+model ParentStudent {
+  id        String  @id @default(cuid())
+  parentId  String
+  studentId String
+
+  parent    User    @relation("ParentLinks", fields: [parentId], references: [id])
+  student   Student @relation(fields: [studentId], references: [id])
+
+  @@unique([parentId, studentId])
+  @@index([studentId])
+  @@index([parentId])
 }
 
 model Teacher {
   id        String   @id @default(cuid())
+  userId    String   @unique
   schoolId  String
+  user      User     @relation(fields: [userId], references: [id])
   school    School   @relation(fields: [schoolId], references: [id])
-  name      String
-  phone     String?
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+
+  @@index([schoolId])
 }
 
 model Attendance {
-  id         String   @id @default(cuid())
-  schoolId   String
-  school     School   @relation(fields: [schoolId], references: [id])
-  studentId  String
-  student    Student  @relation(fields: [studentId], references: [id])
-  date       DateTime
-  status     String   // PRESENT/ABSENT (keep string for MVP)
-  markedById String?  // teacher userId
-  createdAt  DateTime @default(now())
+  id        String           @id @default(cuid())
+  date      DateTime
+  status    AttendanceStatus
+  studentId String
+  schoolId  String
 
-  @@index([schoolId, date])
+  student   Student          @relation(fields: [studentId], references: [id])
+  school    School           @relation(fields: [schoolId], references: [id])
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
   @@unique([studentId, date])
+  @@index([schoolId, date])
+  @@index([studentId, date])
+}
+
+model SchoolProfile {
+  id          String   @id @default(cuid())
+  schoolId    String   @unique
+  school      School   @relation(fields: [schoolId], references: [id])
+  description String?
+  address     String?
+  contact     String?
+  website     String?
+  logoUrl     String?
+  bannerUrl   String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model SchoolGallery {
+  id        String   @id @default(cuid())
+  schoolId  String
+  school    School   @relation(fields: [schoolId], references: [id])
+  imageUrl  String
+  title     String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([schoolId])
+}
+
+model Announcement {
+  id        String   @id @default(cuid())
+  schoolId  String
+  school    School   @relation(fields: [schoolId], references: [id])
+  title     String
+  content   String
+  createdBy String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([schoolId])
+}
+
+model FeePlan {
+  id        String   @id @default(cuid())
+  schoolId  String
+  school    School  @relation(fields: [schoolId], references: [id])
+  name      String
+  amount    Float
+  frequency String
+  className String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  invoices  Invoice[]
+
+  @@index([schoolId])
+}
+
+model Invoice {
+  id        String   @id @default(cuid())
+  schoolId  String
+  school    School   @relation(fields: [schoolId], references: [id])
+  studentId String
+  student   Student  @relation(fields: [studentId], references: [id])
+  feePlanId String
+  feePlan   FeePlan  @relation(fields: [feePlanId], references: [id])
+  amount    Float
+  dueDate   DateTime
+  status    String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  payments  Payment[]
+
+  @@index([schoolId])
+  @@index([studentId])
+}
+
+model Payment {
+  id            String   @id @default(cuid())
+  schoolId      String
+  school        School   @relation(fields: [schoolId], references: [id])
+  invoiceId     String
+  invoice       Invoice  @relation(fields: [invoiceId], references: [id])
+  amount        Float
+  method        String
+  transactionId String   @unique
+  status        String
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([schoolId])
+  @@index([invoiceId])
+}
+
+model AdmissionEnquiry {
+  id          String   @id @default(cuid())
+  schoolId    String
+  school      School   @relation(fields: [schoolId], references: [id])
+  parentName  String
+  parentPhone String
+  studentName String
+  className   String
+  message     String?
+  status      String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([schoolId])
+}
+
+model Otp {
+  id        String   @id @default(cuid())
+  phone     String
+  code      String
+  expiresAt DateTime
+  used      Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  @@index([phone])
 }
