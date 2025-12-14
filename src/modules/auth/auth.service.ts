@@ -303,6 +303,38 @@ export class AuthService {
     }
   }
 
+  async getProfile(userId: string) {
+    console.log('Fetching profile for userId:', userId);
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: {
+        id: true,
+        name: true,
+        email: true,
+        emailVerified: true,
+        phoneE164: true,
+        phoneCode: true,
+        phoneNumber: true,
+        role: true,
+        schoolId: true,
+        createdAt: true,
+        school: {
+          select: {
+            id: true,
+            name: true,
+            code: true,
+          },
+        },
+      },
+    });
+
+    if (!user) {
+      throw new UnauthorizedException('User not found');
+    }
+
+    return user;
+  }
+
   // helper for protecting "super admin only" registration flows later
   ensureSuperAdmin(role: Role) {
     if (role !== Role.SUPER_ADMIN) {
