@@ -5,6 +5,7 @@ import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { Role } from '@prisma/client';
+import { ApiBearerAuth } from '@nestjs/swagger';
 
 @Controller('schools')
 @UseGuards(JwtAuthGuard, RolesGuard)
@@ -13,6 +14,7 @@ export class SchoolsController {
 
   @Post()
   @Roles(Role.SUPER_ADMIN)
+  @ApiBearerAuth('access-token')
   create(@Body() dto: CreateSchoolDto) {
     return this.schoolsService.create(dto);
   }

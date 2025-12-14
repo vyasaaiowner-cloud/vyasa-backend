@@ -42,7 +42,8 @@ model School {
 
 model User {
   id        String   @id @default(cuid())
-  phone     String   @unique
+  phoneCode String?
+  phoneNumber String   @unique
   email     String   @unique
   name      String
   role      Role
@@ -238,11 +239,12 @@ model AdmissionEnquiry {
 
 model Otp {
   id        String   @id @default(cuid())
-  phone     String
+  contact   String
+  type      String   // 'phone' or 'email'
   code      String
   expiresAt DateTime
   used      Boolean  @default(false)
   createdAt DateTime @default(now())
 
-  @@index([phone])
+  @@index([contact])
 }

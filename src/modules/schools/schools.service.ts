@@ -10,7 +10,7 @@ export class SchoolsService {
   async create(dto: CreateSchoolDto) {
     const schoolCode = dto.code.trim().toUpperCase();
     const adminEmail = dto.adminEmail.toLowerCase();
-
+    console.log(dto);
     try {
       const result = await this.prisma.$transaction(async (tx) => {
         // 1️⃣ Create school
@@ -26,7 +26,8 @@ export class SchoolsService {
           data: {
             email: adminEmail,
             name: dto.adminName.trim(),
-            phone: dto.adminPhone.trim(),
+            phoneCode: dto.adminPhoneCode?.trim(),
+            phoneNumber: dto.adminPhoneNumber?.trim(),
             role: Role.SCHOOL_ADMIN,
             schoolId: school.id,
           },

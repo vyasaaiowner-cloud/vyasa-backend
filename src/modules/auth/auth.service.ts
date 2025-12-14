@@ -24,44 +24,46 @@ export class AuthService {
   ) {}
 
   async sendOtp(dto: SendOtpDto) {
-    const phone = dto.phone.trim();
+    const contact = dto.email || (dto.countryCode + dto.mobileNo);
+    const type = dto.email ? 'email' : 'phone';
 
     // Generate 6-digit OTP
     const code = Math.floor(100000 + Math.random() * 900000).toString();
     const expiresAt = new Date(Date.now() + 5 * 60 * 1000); // 5 minutes
 
-    // Invalidate previous OTPs for this phone
+    // Invalidate previous OTPs for this contact
     await this.prisma.otp.updateMany({
-      where: { phone, used: false },
+      where: { contact, used: false },
       data: { used: true },
     });
 
     await this.prisma.otp.create({
       data: {
-        phone,
+        contact,
+        type,
         code,
         expiresAt,
       },
     });
 
-    // For MVP, log the OTP instead of sending SMS
-    console.log(`OTP for ${phone}: ${code}`);
+    // For MVP, log the OTP instead of sending SMS/Email
+    console.log(`OTP for ${contact} (${type}): ${code}`);
 
     return { message: 'OTP sent successfully' };
   }
 
   async register(dto: RegisterDto) {
-    const phone = dto.phone.trim();
+    const contact = dto.email || (dto.countryCode + dto.mobileNo);
 
     // Verify OTP
     const otpRecord = await this.prisma.otp.findFirst({
-      where: { phone, code: dto.otp, used: false },
+      where: { contact: contact, code: dto.otp, used: false },
     });
     if (!otpRecord || otpRecord.expiresAt < new Date()) {
       throw new BadRequestException('Invalid or expired OTP');
     }
 
-    const existing = await this.prisma.user.findUnique({ where: { phone } });
+    const existing = await this.prisma.user.findUnique({ where: { phoneNumber: dto.mobileNo } });
     if (existing) throw new BadRequestException('Phone already exists');
 
     // Enforce schoolId rules
@@ -85,16 +87,20 @@ export class AuthService {
       if (!schoolExists) throw new BadRequestException('Invalid schoolId');
     }
 
-    // For SUPER_ADMIN, ensure platform school exists (clear error if not)
+    // For SUPER_ADMIN, ensure platform school exists (create if not)
     if (dto.role === Role.SUPER_ADMIN) {
       const platformExists = await this.prisma.school.findUnique({
         where: { id: PLATFORM_SCHOOL_ID },
         select: { id: true },
       });
       if (!platformExists) {
-        throw new BadRequestException(
-          `Platform school missing. Create School with id="${PLATFORM_SCHOOL_ID}" (code: "VYASA_PLATFORM").`,
-        );
+        await this.prisma.school.create({
+          data: {
+            id: PLATFORM_SCHOOL_ID,
+            name: 'Vyasa Platform',
+            code: 'VYASA_PLATFORM',
+          },
+        });
       }
     }
 
@@ -106,7 +112,8 @@ export class AuthService {
 
     const user = await this.prisma.user.create({
       data: {
-        phone,
+        phoneCode: dto.countryCode,
+        phoneNumber: dto.mobileNo,
         email: dto.email.toLowerCase(),
         name: dto.name.trim(),
         role: dto.role,
@@ -114,7 +121,8 @@ export class AuthService {
       },
       select: {
         id: true,
-        phone: true,
+        phoneCode: true,
+        phoneNumber: true,
         email: true,
         name: true,
         role: true,
@@ -127,17 +135,21 @@ export class AuthService {
   }
 
   async login(dto: LoginDto) {
-    const phone = dto.phone.trim();
+    const contact = dto.email || (dto.countryCode + dto.mobileNo);
 
     // Verify OTP
     const otpRecord = await this.prisma.otp.findFirst({
-      where: { phone, code: dto.otp, used: false },
+      where: { contact, code: dto.otp, used: false },
     });
+
     if (!otpRecord || otpRecord.expiresAt < new Date()) {
       throw new UnauthorizedException('Invalid or expired OTP');
     }
 
-    const user = await this.prisma.user.findUnique({ where: { phone } });
+    // Find user by phone or email based on type
+    const user = otpRecord.type === 'phone'
+      ? await this.prisma.user.findFirst({ where: { phoneNumber: contact.slice(-10) } })
+      : await this.prisma.user.findUnique({ where: { email: contact } });
     if (!user) throw new UnauthorizedException('User not found');
 
     // Mark OTP as used
@@ -148,7 +160,7 @@ export class AuthService {
 
     const payload = {
       sub: user.id,
-      phone: user.phone,
+      phone: user.phoneCode + user.phoneNumber,
       role: user.role,
       schoolId: user.schoolId,
     };
