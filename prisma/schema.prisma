@@ -269,4 +269,5 @@ model OtpRateLimit {
   createdAt DateTime @default(now())
 
   @@unique([contact, ipAddress])
+  @@index([expiresAt])
 }

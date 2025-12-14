@@ -204,7 +204,7 @@ export class AuthService {
         phoneE164,
         phoneCode,
         phoneNumber,
-        email: email ?? null,
+        email,
         emailVerified: type === OtpType.EMAIL,
         name: dto.name.trim(),
         role: dto.role,
