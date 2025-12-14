@@ -35,8 +35,20 @@ export class AuthService {
   async sendOtp(dto: SendOtpDto, ipAddress?: string) {
     // Normalize inputs
     try {
+      // Validate: either email OR phone (not both, not neither)
+      const hasEmail = !!dto.email && dto.email.trim() !== '';
+      const hasPhone = !!dto.countryCode && !!dto.mobileNo;
+
+      if (!hasEmail && !hasPhone) {
+        throw new BadRequestException('Either email or phone must be provided');
+      }
+
+      if (hasEmail && hasPhone) {
+        throw new BadRequestException('Provide either email or phone, not both');
+      }
+
       const email = normalizeEmail(dto.email);
-      const phoneE164 = !email ? normalizeE164(dto.countryCode, dto.mobileNo) : null;
+      const phoneE164 = hasPhone ? normalizeE164(dto.countryCode!, dto.mobileNo!) : null;
       const contact = email || phoneE164!;
       const type = getContactType(dto.email);
 
@@ -80,15 +92,22 @@ export class AuthService {
 
   async register(dto: RegisterDto) {
     try {
-      // Validate: either email or phone must be provided
-      if (!dto.email && (!dto.countryCode || !dto.mobileNo)) {
+      // Validate: either email OR phone (not both, not neither)
+      const hasEmail = !!dto.email && dto.email.trim() !== '';
+      const hasPhone = !!dto.countryCode && !!dto.mobileNo;
+
+      if (!hasEmail && !hasPhone) {
         throw new BadRequestException('Either email or phone must be provided');
+      }
+
+      if (hasEmail && hasPhone) {
+        throw new BadRequestException('Provide either email or phone, not both');
       }
 
       // Normalize inputs
       const email = normalizeEmail(dto.email);
-      const phoneE164 = normalizeE164(dto.countryCode, dto.mobileNo);
-      const contact = email || phoneE164;
+      const phoneE164 = hasPhone ? normalizeE164(dto.countryCode!, dto.mobileNo!) : null;
+      const contact = email || phoneE164!;
       const type = getContactType(dto.email);
 
       // Verify OTP
@@ -114,11 +133,13 @@ export class AuthService {
         throw new BadRequestException('Invalid OTP');
       }
 
-      // Check if phone already exists
-      const existingPhone = await this.prisma.user.findUnique({
-        where: { phoneE164 },
-      });
-      if (existingPhone) throw new BadRequestException('Phone already exists');
+      // Check if phone already exists (only when phone flow)
+      if (phoneE164) {
+        const existingPhone = await this.prisma.user.findUnique({
+          where: { phoneE164 },
+        });
+        if (existingPhone) throw new BadRequestException('Phone already exists');
+      }
 
       // Only check email if provided
       if (email) {
@@ -172,15 +193,17 @@ export class AuthService {
       data: { used: true },
     });
 
-    const phoneCode = dto.countryCode.startsWith('+')
-      ? dto.countryCode
-      : '+' + dto.countryCode;
+    // Extract phone parts (only if phone flow)
+    const phoneCode = phoneE164 && dto.countryCode
+      ? (dto.countryCode.startsWith('+') ? dto.countryCode : '+' + dto.countryCode)
+      : null;
+    const phoneNumber = phoneE164 ? dto.mobileNo! : null;
 
     const user = await this.prisma.user.create({
       data: {
         phoneE164,
         phoneCode,
-        phoneNumber: dto.mobileNo,
+        phoneNumber,
         email: email ?? null,
         emailVerified: type === OtpType.EMAIL,
         name: dto.name.trim(),
@@ -212,14 +235,21 @@ export class AuthService {
 
   async login(dto: LoginDto, ipAddress?: string) {
     try {
-      // Validate: either email or phone must be provided
-      if (!dto.email && (!dto.countryCode || !dto.mobileNo)) {
+      // Validate: either email OR phone (not both, not neither)
+      const hasEmail = !!dto.email && dto.email.trim() !== '';
+      const hasPhone = !!dto.countryCode && !!dto.mobileNo;
+
+      if (!hasEmail && !hasPhone) {
         throw new BadRequestException('Either email or phone must be provided');
+      }
+
+      if (hasEmail && hasPhone) {
+        throw new BadRequestException('Provide either email or phone, not both');
       }
 
       // Normalize inputs
       const email = normalizeEmail(dto.email);
-      const phoneE164 = !email ? normalizeE164(dto.countryCode, dto.mobileNo) : null;
+      const phoneE164 = hasPhone ? normalizeE164(dto.countryCode!, dto.mobileNo!) : null;
       const contact = email || phoneE164!;
       const type = getContactType(dto.email);
 
@@ -258,7 +288,7 @@ export class AuthService {
 
       const payload = {
         sub: user.id,
-        phone: user.phoneCode + user.phoneNumber,
+        phone: user.phoneE164 || user.email || 'unknown',
         role: user.role,
         schoolId: user.schoolId,
       };

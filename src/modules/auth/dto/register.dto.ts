@@ -3,13 +3,15 @@ import { Role } from '@prisma/client';
 import { ApiProperty } from '@nestjs/swagger';
 
 export class RegisterDto {
-  @ApiProperty({ default: '+91' })
+  @ApiProperty({ required: false, default: '+91' })
+  @IsOptional()
   @IsString()
-  countryCode: string;
+  countryCode?: string;
 
-  @ApiProperty({ default: '1234567890' })
+  @ApiProperty({ required: false, default: '1234567890' })
+  @IsOptional()
   @IsString()
-  mobileNo: string;
+  mobileNo?: string;
 
   @ApiProperty({ default: '123456' })
   @IsString()
