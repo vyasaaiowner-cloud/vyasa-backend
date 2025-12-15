@@ -10,12 +10,12 @@ export class CreateStudentDto {
   @ApiProperty()
   @IsString()
   @IsNotEmpty()
-  className: string;
+  classId: string;
 
   @ApiProperty()
   @IsString()
   @IsNotEmpty()
-  section: string;
+  sectionId: string;
 
   @ApiProperty()
   @IsNumber()

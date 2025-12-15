@@ -38,14 +38,14 @@ export class StudentsController {
 
   @Get()
   @Roles(Role.SCHOOL_ADMIN, Role.TEACHER, Role.PARENT)
-  @ApiQuery({ name: 'className', required: false })
-  @ApiQuery({ name: 'section', required: false })
+  @ApiQuery({ name: 'classId', required: false })
+  @ApiQuery({ name: 'sectionId', required: false })
   findAll(
     @Req() req: { user: RequestUser },
-    @Query('className') className?: string,
-    @Query('section') section?: string,
+    @Query('classId') classId?: string,
+    @Query('sectionId') sectionId?: string,
   ) {
-    return this.studentsService.findAll(req.user.schoolId, className, section);
+    return this.studentsService.findAll(req.user.schoolId, classId, sectionId);
   }
 
   @Get(':id')

@@ -10,12 +10,12 @@ export class UpdateStudentDto {
   @ApiProperty({ required: false })
   @IsOptional()
   @IsString()
-  className?: string;
+  classId?: string;
 
   @ApiProperty({ required: false })
   @IsOptional()
   @IsString()
-  section?: string;
+  sectionId?: string;
 
   @ApiProperty({ required: false })
   @IsOptional()

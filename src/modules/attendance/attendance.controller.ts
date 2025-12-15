@@ -21,21 +21,19 @@ export class AttendanceController {
     return this.attendanceService.markAttendance(req.user.schoolId, dto);
   }
 
-  @Get('class/:className/section/:section')
+  @Get('section/:sectionId')
   @Roles(Role.TEACHER, Role.SCHOOL_ADMIN)
   @ApiQuery({ name: 'startDate', required: false })
   @ApiQuery({ name: 'endDate', required: false })
-  getAttendanceByClass(
+  getAttendanceBySection(
     @Req() req: { user: RequestUser },
-    @Param('className') className: string,
-    @Param('section') section: string,
+    @Param('sectionId') sectionId: string,
     @Query('startDate') startDate?: string,
     @Query('endDate') endDate?: string,
   ) {
-    return this.attendanceService.getAttendanceByClass(
+    return this.attendanceService.getAttendanceBySection(
       req.user.schoolId,
-      className,
-      section,
+      sectionId,
       startDate,
       endDate,
     );

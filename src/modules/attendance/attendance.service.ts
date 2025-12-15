@@ -10,71 +10,94 @@ export class AttendanceService {
     const attendanceDate = new Date(dto.date);
     attendanceDate.setHours(0, 0, 0, 0); // Normalize to start of day
 
-    // Check if attendance already marked for this class/section/date
-    const existing = await this.prisma.attendance.findFirst({
-      where: {
-        schoolId,
-        date: attendanceDate,
-        student: {
-          className: dto.className,
-          section: dto.section,
-        },
-      },
-    });
+    try {
+      return await this.prisma.$transaction(async (tx) => {
+        // Verify section exists and belongs to school
+        const section = await tx.section.findFirst({
+          where: {
+            id: dto.sectionId,
+            schoolId,
+          },
+          include: {
+            class: true,
+          },
+        });
 
-    if (existing) {
-      throw new BadRequestException(
-        'Attendance already marked for this class/section on this date',
-      );
+        if (!section) {
+          throw new BadRequestException('Section not found in this school');
+        }
+
+        // Check if attendance already marked for this section/date
+        const existing = await tx.attendance.findFirst({
+          where: {
+            schoolId,
+            date: attendanceDate,
+            student: {
+              sectionId: dto.sectionId,
+            },
+          },
+        });
+
+        if (existing) {
+          throw new BadRequestException(
+            'Attendance already marked for this section on this date',
+          );
+        }
+
+        // Verify all students belong to this section and school
+        const students = await tx.student.findMany({
+          where: {
+            id: { in: dto.attendances.map((a) => a.studentId) },
+            schoolId,
+            sectionId: dto.sectionId,
+          },
+        });
+
+        if (students.length !== dto.attendances.length) {
+          throw new BadRequestException(
+            'One or more students not found in this section',
+          );
+        }
+
+        // Create attendance records
+        await tx.attendance.createMany({
+          data: dto.attendances.map((attendance) => ({
+            studentId: attendance.studentId,
+            date: attendanceDate,
+            status: attendance.status,
+            schoolId,
+          })),
+        });
+
+        return {
+          message: 'Attendance marked successfully',
+          date: attendanceDate,
+          className: section.class.name,
+          section: section.name,
+          count: dto.attendances.length,
+        };
+      });
+    } catch (error: any) {
+      // Handle unique constraint violation from concurrent requests
+      if (error?.code === 'P2002') {
+        throw new BadRequestException(
+          'Attendance already marked for one or more students on this date',
+        );
+      }
+      throw error;
     }
-
-    // Verify all students belong to this class/section and school
-    const students = await this.prisma.student.findMany({
-      where: {
-        id: { in: dto.attendances.map((a) => a.studentId) },
-        schoolId,
-        className: dto.className,
-        section: dto.section,
-      },
-    });
-
-    if (students.length !== dto.attendances.length) {
-      throw new BadRequestException(
-        'One or more students not found in this class/section',
-      );
-    }
-
-    // Create attendance records
-    await this.prisma.attendance.createMany({
-      data: dto.attendances.map((attendance) => ({
-        studentId: attendance.studentId,
-        date: attendanceDate,
-        status: attendance.status,
-        schoolId,
-      })),
-    });
-
-    return {
-      message: 'Attendance marked successfully',
-      date: attendanceDate,
-      className: dto.className,
-      section: dto.section,
-      count: dto.attendances.length,
-    };
   }
 
-  async getAttendanceByClass(
+  async getAttendanceBySection(
     schoolId: string,
-    className: string,
-    section: string,
+    sectionId: string,
     startDate?: string,
     endDate?: string,
   ) {
     const where: any = {
       schoolId,
       student: {
-        className,
-        section,
+        sectionId,
       },
     };
 
@@ -98,8 +121,16 @@ export class AttendanceService {
             id: true,
             name: true,
             rollNo: true,
-            className: true,
-            section: true,
+            class: {
+              select: {
+                name: true,
+              },
+            },
+            section: {
+              select: {
+                name: true,
+              },
+            },
           },
         },
       },
@@ -123,6 +154,10 @@ export class AttendanceService {
       where: {
         id: studentId,
         schoolId,
+      },
+      include: {
+        class: true,
+        section: true,
       },
     });
 
@@ -155,8 +190,16 @@ export class AttendanceService {
             id: true,
             name: true,
             rollNo: true,
-            className: true,
-            section: true,
+            class: {
+              select: {
+                name: true,
+              },
+            },
+            section: {
+              select: {
+                name: true,
+              },
+            },
           },
         },
       },
@@ -186,7 +229,12 @@ export class AttendanceService {
         },
       },
       include: {
-        student: true,
+        student: {
+          include: {
+            class: true,
+            section: true,
+          },
+        },
       },
     });
 
@@ -221,8 +269,16 @@ export class AttendanceService {
             id: true,
             name: true,
             rollNo: true,
-            className: true,
-            section: true,
+            class: {
+              select: {
+                name: true,
+              },
+            },
+            section: {
+              select: {
+                name: true,
+              },
+            },
           },
         },
       },

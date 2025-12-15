@@ -14,12 +14,28 @@ export class StudentsService {
   async create(schoolId: string, dto: CreateStudentDto) {
     try {
       return await this.prisma.$transaction(async (tx) => {
+        // Verify class and section exist and belong to school
+        const section = await tx.section.findFirst({
+          where: {
+            id: dto.sectionId,
+            classId: dto.classId,
+            schoolId,
+          },
+          include: {
+            class: true,
+          },
+        });
+
+        if (!section) {
+          throw new BadRequestException('Section not found or does not belong to this class/school');
+        }
+
         // Create student
         const student = await tx.student.create({
           data: {
             name: dto.name.trim(),
-            className: dto.className.trim(),
-            section: dto.section.trim(),
+            classId: dto.classId,
+            sectionId: dto.sectionId,
             rollNo: dto.rollNo,
             schoolId,
           },
@@ -110,18 +126,20 @@ export class StudentsService {
     }
   }
 
-  async findAll(schoolId: string, className?: string, section?: string) {
+  async findAll(schoolId: string, classId?: string, sectionId?: string) {
     const where: any = { schoolId };
-    if (className) {
-      where.className = className;
+    if (classId) {
+      where.classId = classId;
     }
-    if (section) {
-      where.section = section;
+    if (sectionId) {
+      where.sectionId = sectionId;
     }
 
     return this.prisma.student.findMany({
       where,
       include: {
+        class: true,
+        section: true,
         parents: {
           include: {
             parent: {
@@ -138,8 +156,8 @@ export class StudentsService {
         },
       },
       orderBy: [
-        { className: 'asc' },
-        { section: 'asc' },
+        { class: { name: 'asc' } },
+        { section: { name: 'asc' } },
         { rollNo: 'asc' },
       ],
     });
@@ -152,6 +170,8 @@ export class StudentsService {
         schoolId,
       },
       include: {
+        class: true,
+        section: true,
         parents: {
           include: {
             parent: {
@@ -188,16 +208,36 @@ export class StudentsService {
       throw new NotFoundException('Student not found');
     }
 
+    // Validate section if being updated
+    if (dto.classId || dto.sectionId) {
+      const targetClassId = dto.classId || student.classId;
+      const targetSectionId = dto.sectionId || student.sectionId;
+
+      const section = await this.prisma.section.findFirst({
+        where: {
+          id: targetSectionId,
+          classId: targetClassId,
+          schoolId,
+        },
+      });
+
+      if (!section) {
+        throw new BadRequestException('Section not found or does not belong to this class/school');
+      }
+    }
+
     try {
       return await this.prisma.student.update({
         where: { id: studentId },
         data: {
           ...(dto.name && { name: dto.name.trim() }),
-          ...(dto.className && { className: dto.className.trim() }),
-          ...(dto.section && { section: dto.section.trim() }),
+          ...(dto.classId && { classId: dto.classId }),
+          ...(dto.sectionId && { sectionId: dto.sectionId }),
           ...(dto.rollNo !== undefined && { rollNo: dto.rollNo }),
         },
         include: {
+          class: true,
+          section: true,
           parents: {
             include: {
               parent: {
@@ -265,6 +305,9 @@ export class StudentsService {
 
     results.total = rows.length;
 
+    // Cache for class/section lookups to avoid repeated DB queries
+    const sectionCache = new Map<string, string>(); // key: "className|sectionName", value: sectionId
+
     // Process each row
     for (let i = 0; i < rows.length; i++) {
       const row = rows[i];
@@ -276,21 +319,61 @@ export class StudentsService {
           throw new Error('Missing required fields: name, className, section, or rollNo');
         }
 
+        // Validate rollNo is a number
+        const rollNo = parseInt(row.rollNo);
+        if (isNaN(rollNo)) {
+          throw new Error('Invalid roll number');
+        }
+
+        // Look up or cache section ID
+        const cacheKey = `${row.className}|${row.section}`;
+        let sectionId = sectionCache.get(cacheKey);
+
+        if (!sectionId) {
+          // Find class and section
+          const classRecord = await this.prisma.class.findFirst({
+            where: {
+              name: row.className.trim(),
+              schoolId,
+            },
+          });
+
+          if (!classRecord) {
+            throw new Error(`Class "${row.className}" not found`);\n          }
+
+          const sectionRecord = await this.prisma.section.findFirst({
+            where: {
+              name: row.section.trim(),
+              classId: classRecord.id,
+              schoolId,
+            },
+          });
+
+          if (!sectionRecord) {
+            throw new Error(`Section "${row.section}" not found in class "${row.className}"`);\n          }
+
+          sectionId = sectionRecord.id;
+          sectionCache.set(cacheKey, sectionId);
+        }
+
         const dto: CreateStudentDto = {
           name: row.name,
-          className: row.className,
-          section: row.section,
-          rollNo: parseInt(row.rollNo),
+          classId: sectionId.split('|')[0], // Get classId from section lookup
+          sectionId: sectionId,
+          rollNo,
           parentName: row.parentName || undefined,
           parentCountryCode: row.parentCountryCode || undefined,
           parentMobileNo: row.parentMobileNo || undefined,
           parentEmail: row.parentEmail || undefined,
         };
 
-        // Validate rollNo is a number
-        if (isNaN(dto.rollNo)) {
-          throw new Error('Invalid roll number');
-        }
+        // Get the actual section to extract classId
+        const section = await this.prisma.section.findUnique({
+          where: { id: sectionId },
+          select: { classId: true },
+        });
+
+        dto.classId = section!.classId;
 
         await this.create(schoolId, dto);
         results.success++;

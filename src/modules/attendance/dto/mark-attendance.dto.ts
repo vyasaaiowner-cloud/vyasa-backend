@@ -18,12 +18,7 @@ export class MarkAttendanceDto {
   @ApiProperty()
   @IsString()
   @IsNotEmpty()
-  className: string;
-
-  @ApiProperty()
-  @IsString()
-  @IsNotEmpty()
-  section: string;
+  sectionId: string;
 
   @ApiProperty()
   @IsDateString()

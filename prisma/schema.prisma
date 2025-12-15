@@ -32,19 +32,13 @@ model School {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  users      User[]
-  students   Student[]
-  teachers   Teacher[]
-  classes    Class[]
-  sections   Section[]
-  attendance Attendance[]
-  profile    SchoolProfile?
-  gallery    SchoolGallery[]
+  users         User[]
+  students      Student[]
+  teachers      Teacher[]
+  classes       Class[]
+  sections      Section[]
+  attendance    Attendance[]
   announcements Announcement[]
-  feePlans   FeePlan[]
-  invoices   Invoice[]
-  payments   Payment[]
-  enquiries  AdmissionEnquiry[]
 }
 
 model User {
@@ -74,27 +68,29 @@ model User {
 }
 
 model Student {
-  id         String   @id @default(cuid())
-  name       String
-  className  String
-  section    String
-  rollNo     Int
-  schoolId   String
-  school     School   @relation(fields: [schoolId], references: [id])
-  createdAt  DateTime @default(now())
-  updatedAt  DateTime @updatedAt
+  id        String   @id @default(cuid())
+  name      String
+  classId   String
+  sectionId String
+  rollNo    Int
+  schoolId  String
+  
+  class     Class    @relation(fields: [classId], references: [id])
+  section   Section  @relation(fields: [sectionId], references: [id])
+  school    School   @relation(fields: [schoolId], references: [id])
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   // Parents mapped through join table
-  parents ParentStudent[]
+  parents    ParentStudent[]
 
   // Attendance records
   attendance Attendance[]
 
-  // Invoices
-  invoices Invoice[]
-
-  @@unique([schoolId, className, section, rollNo])
-  @@index([schoolId, className, section])
+  @@unique([schoolId, sectionId, rollNo])
+  @@index([schoolId])
+  @@index([classId])
+  @@index([sectionId])
 }
 
 model ParentStudent {
@@ -118,7 +114,8 @@ model Class {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  sections  Section[]
+  sections Section[]
+  students Student[]
 
   @@unique([schoolId, name])
   @@index([schoolId])
@@ -135,6 +132,7 @@ model Section {
   updatedAt DateTime @updatedAt
 
   teacherAssignments TeacherAssignment[]
+  students           Student[]
 
   @@unique([classId, name])
   @@index([schoolId])
@@ -188,116 +186,21 @@ model Attendance {
   @@index([studentId, date])
 }
 
-model SchoolProfile {
-  id          String   @id @default(cuid())
-  schoolId    String   @unique
-  school      School   @relation(fields: [schoolId], references: [id])
-  description String?
-  address     String?
-  contact     String?
-  website     String?
-  logoUrl     String?
-  bannerUrl   String?
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-}
-
-model SchoolGallery {
-  id        String   @id @default(cuid())
-  schoolId  String
-  school    School   @relation(fields: [schoolId], references: [id])
-  imageUrl  String
-  title     String?
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  @@index([schoolId])
-}
-
 model Announcement {
-  id        String   @id @default(cuid())
-  schoolId  String
-  school    School   @relation(fields: [schoolId], references: [id])
-  title     String
-  content   String
-  targetAll Boolean  @default(true)
-  targetClass String?
-  targetSection String?
-  createdBy String
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  @@index([schoolId])
-  @@index([targetClass])
-}
-
-model FeePlan {
-  id        String   @id @default(cuid())
-  schoolId  String
-  school    School  @relation(fields: [schoolId], references: [id])
-  name      String
-  amount    Decimal @db.Decimal(10,2)
-  frequency String
-  className String?
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  invoices  Invoice[]
-
-  @@index([schoolId])
-}
-
-model Invoice {
-  id        String   @id @default(cuid())
-  schoolId  String
-  school    School   @relation(fields: [schoolId], references: [id])
-  studentId String
-  student   Student  @relation(fields: [studentId], references: [id])
-  feePlanId String
-  feePlan   FeePlan  @relation(fields: [feePlanId], references: [id])
-  amount    Decimal @db.Decimal(10,2)
-  dueDate   DateTime
-  status    String
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  payments  Payment[]
-
-  @@index([schoolId])
-  @@index([studentId])
-}
-
-model Payment {
   id            String   @id @default(cuid())
   schoolId      String
   school        School   @relation(fields: [schoolId], references: [id])
-  invoiceId     String
-  invoice       Invoice  @relation(fields: [invoiceId], references: [id])
-  amount        Decimal @db.Decimal(10,2)
-  method        String
-  transactionId String   @unique
-  status        String
+  title         String
+  content       String
+  targetAll     Boolean  @default(true)
+  targetClass   String?
+  targetSection String?
+  createdBy     String
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 
   @@index([schoolId])
-  @@index([invoiceId])
-}
-
-model AdmissionEnquiry {
-  id          String   @id @default(cuid())
-  schoolId    String
-  school      School   @relation(fields: [schoolId], references: [id])
-  parentName  String
-  parentPhone String
-  studentName String
-  className   String
-  message     String?
-  status      String
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-
-  @@index([schoolId])
+  @@index([targetClass])
 }
 
 model Otp {
