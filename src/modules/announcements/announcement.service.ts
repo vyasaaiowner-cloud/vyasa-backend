@@ -107,8 +107,13 @@ export class AnnouncementService {
         return [];
       }
 
-      // Get unique classes of children
-      const classNames = [...new Set(children.map((c) => c.student.className))];
+      // Get unique class IDs of children to fetch class names
+      const classIds = [...new Set(children.map((c) => c.student.classId))];
+      const classes = await this.prisma.class.findMany({
+        where: { id: { in: classIds } },
+        select: { name: true },
+      });
+      const classNames = classes.map((c) => c.name);
 
       return this.prisma.announcement.findMany({
         where: {

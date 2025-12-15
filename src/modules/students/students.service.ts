@@ -339,7 +339,8 @@ export class StudentsService {
           });
 
           if (!classRecord) {
-            throw new Error(`Class "${row.className}" not found`);\n          }
+            throw new Error(`Class "${row.className}" not found`);
+          }
 
           const sectionRecord = await this.prisma.section.findFirst({
             where: {
@@ -350,7 +351,8 @@ export class StudentsService {
           });
 
           if (!sectionRecord) {
-            throw new Error(`Section "${row.section}" not found in class "${row.className}"`);\n          }
+            throw new Error(`Section "${row.section}" not found in class "${row.className}"`);
+          }
 
           sectionId = sectionRecord.id;
           sectionCache.set(cacheKey, sectionId);
