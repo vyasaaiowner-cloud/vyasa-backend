@@ -10,6 +10,7 @@ import { TeachersModule } from './modules/teachers/teachers.module';
 import { StudentsModule } from './modules/students/students.module';
 import { AttendanceModule } from './modules/attendance/attendance.module';
 import { AnnouncementModule } from './modules/announcements/announcement.module';
+import { HolidaysModule } from './modules/holidays/holidays.module';
 
 @Module({
   imports: [
@@ -22,6 +23,7 @@ import { AnnouncementModule } from './modules/announcements/announcement.module'
     StudentsModule,
     AttendanceModule,
     AnnouncementModule,
+    HolidaysModule,
   ],
   controllers: [AppController],
   providers: [AppService],
