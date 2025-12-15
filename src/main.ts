@@ -1,6 +1,7 @@
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
 import { ValidationPipe } from '@nestjs/common';
+import { PrismaExceptionFilter } from './common/filters/prisma-exception.filter';
 import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger';
 
 async function bootstrap() {
@@ -27,6 +28,9 @@ async function bootstrap() {
       transform: true,
     }),
   );
+
+  // Global exception filter for Prisma errors
+  app.useGlobalFilters(new PrismaExceptionFilter());
 
   // ✅ Swagger setup
   const config = new DocumentBuilder()

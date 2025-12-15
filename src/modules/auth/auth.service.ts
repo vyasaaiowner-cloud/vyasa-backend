@@ -18,6 +18,7 @@ import {
   getContactType,
 } from './validators/phone-and-email.validator';
 import { OtpSecurityService } from './services/otp-security.service';
+import { randomInt } from 'crypto';
 
 // Recommended: keep SUPER_ADMIN inside a "platform" school for DB integrity + easy scoping.
 // Create this School once (seed/migration/manual):
@@ -58,8 +59,8 @@ export class AuthService {
         await this.otpSecurity.recordOtpRequest(contact, ipAddress);
       }
 
-      // Generate 6-digit OTP
-      const code = Math.floor(100000 + Math.random() * 900000).toString();
+      // Generate 6-digit OTP using crypto (secure random)
+      const code = randomInt(100000, 1000000).toString();
       const codeHash = await bcrypt.hash(code, 10);
       const expiresAt = new Date(Date.now() + 5 * 60 * 1000); // 5 minutes
 
@@ -278,7 +279,21 @@ export class AuthService {
       const user = type === OtpType.PHONE
         ? await this.prisma.user.findUnique({ where: { phoneE164: contact } })
         : await this.prisma.user.findUnique({ where: { email: contact } });
-      if (!user) throw new UnauthorizedException('User not found');
+      
+      // If user doesn't exist, return needsRegistration flag
+      if (!user) {
+        // Mark OTP as used even for non-existent users (prevent OTP reuse)
+        await this.prisma.otp.update({
+          where: { id: otpRecord.id },
+          data: { used: true },
+        });
+        
+        return { 
+          needsRegistration: true,
+          contact: type === OtpType.PHONE ? { phoneE164: contact } : { email: contact },
+          message: 'User not found. Please complete registration.',
+        };
+      }
 
       // Mark OTP as used
       await this.prisma.otp.update({
@@ -294,7 +309,7 @@ export class AuthService {
       };
 
       const accessToken = await this.jwt.signAsync(payload);
-      return { accessToken };
+      return { accessToken, needsRegistration: false };
     } catch (error) {
       if (error instanceof UnauthorizedException) throw error;
       throw new UnauthorizedException(
