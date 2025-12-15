@@ -4,5 +4,5 @@ export type RequestUser = {
   sub: string;           // userId
   phone: string;
   role: Role;
-  schoolId?: string | null;
+  schoolId: string;  // Required - all users have a schoolId
 };

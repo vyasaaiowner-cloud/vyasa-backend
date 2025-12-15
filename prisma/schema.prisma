@@ -35,6 +35,8 @@ model School {
   users      User[]
   students   Student[]
   teachers   Teacher[]
+  classes    Class[]
+  sections   Section[]
   attendance Attendance[]
   profile    SchoolProfile?
   gallery    SchoolGallery[]
@@ -108,16 +110,64 @@ model ParentStudent {
   @@index([parentId])
 }
 
+model Class {
+  id        String   @id @default(cuid())
+  name      String
+  schoolId  String
+  school    School   @relation(fields: [schoolId], references: [id])
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  sections  Section[]
+
+  @@unique([schoolId, name])
+  @@index([schoolId])
+}
+
+model Section {
+  id        String   @id @default(cuid())
+  name      String
+  classId   String
+  class     Class    @relation(fields: [classId], references: [id], onDelete: Cascade)
+  schoolId  String
+  school    School   @relation(fields: [schoolId], references: [id])
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  teacherAssignments TeacherAssignment[]
+
+  @@unique([classId, name])
+  @@index([schoolId])
+  @@index([classId])
+}
+
 model Teacher {
   id        String   @id @default(cuid())
   userId    String   @unique
   schoolId  String
+  isActive  Boolean  @default(true)
   user      User     @relation(fields: [userId], references: [id])
   school    School   @relation(fields: [schoolId], references: [id])
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  assignments TeacherAssignment[]
+
   @@index([schoolId])
+  @@index([isActive])
+}
+
+model TeacherAssignment {
+  id        String   @id @default(cuid())
+  teacherId String
+  sectionId String
+  teacher   Teacher  @relation(fields: [teacherId], references: [id], onDelete: Cascade)
+  section   Section  @relation(fields: [sectionId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+
+  @@unique([teacherId, sectionId])
+  @@index([teacherId])
+  @@index([sectionId])
 }
 
 model Attendance {
@@ -170,11 +220,15 @@ model Announcement {
   school    School   @relation(fields: [schoolId], references: [id])
   title     String
   content   String
+  targetAll Boolean  @default(true)
+  targetClass String?
+  targetSection String?
   createdBy String
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   @@index([schoolId])
+  @@index([targetClass])
 }
 
 model FeePlan {

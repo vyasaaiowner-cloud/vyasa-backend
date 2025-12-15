@@ -1,19 +1,86 @@
-import { Controller, Get, UseGuards } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Delete,
+  Get,
+  Param,
+  Patch,
+  Post,
+  Query,
+  Req,
+  UploadedFile,
+  UseGuards,
+  UseInterceptors,
+} from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
+import { StudentsService } from './students.service';
+import { CreateStudentDto } from './dto/create-student.dto';
+import { UpdateStudentDto } from './dto/update-student.dto';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
-import { SchoolScopeGuard } from '../../common/guards/school-scope.guard';
-import { SchoolId } from '../../common/decorators/school-id.decorator';
-import { PrismaService } from '../../prisma/prisma.service';
+import { RolesGuard } from '../../common/guards/roles.guard';
+import { Roles } from '../../common/decorators/roles.decorator';
+import { Role } from '@prisma/client';
+import { ApiBearerAuth, ApiTags, ApiQuery, ApiConsumes } from '@nestjs/swagger';
+import { RequestUser } from '../../common/types/request-user.type';
 
+@ApiTags('students')
 @Controller('students')
-@UseGuards(JwtAuthGuard, SchoolScopeGuard)
+@UseGuards(JwtAuthGuard, RolesGuard)
+@ApiBearerAuth('access-token')
 export class StudentsController {
-  constructor(private prisma: PrismaService) {}
+  constructor(private readonly studentsService: StudentsService) {}
+
+  @Post()
+  @Roles(Role.SCHOOL_ADMIN)
+  create(@Body() dto: CreateStudentDto, @Req() req: { user: RequestUser }) {
+    return this.studentsService.create(req.user.schoolId, dto);
+  }
 
   @Get()
-  async list(@SchoolId() schoolId?: string) {
-    // For non-super-admin users, schoolId is forced.
-    // For SUPER_ADMIN, schoolId may be undefined unless they provide x-school-id.
-    if (!schoolId) return []; // or throw if you want strict admin behavior
-    return this.prisma.student.findMany({ where: { schoolId } });
+  @Roles(Role.SCHOOL_ADMIN, Role.TEACHER, Role.PARENT)
+  @ApiQuery({ name: 'className', required: false })
+  @ApiQuery({ name: 'section', required: false })
+  findAll(
+    @Req() req: { user: RequestUser },
+    @Query('className') className?: string,
+    @Query('section') section?: string,
+  ) {
+    return this.studentsService.findAll(req.user.schoolId, className, section);
+  }
+
+  @Get(':id')
+  @Roles(Role.SCHOOL_ADMIN, Role.TEACHER, Role.PARENT)
+  findOne(@Req() req: { user: RequestUser }, @Param('id') id: string) {
+    return this.studentsService.findOne(req.user.schoolId, id);
+  }
+
+  @Patch(':id')
+  @Roles(Role.SCHOOL_ADMIN)
+  update(
+    @Req() req: { user: RequestUser },
+    @Param('id') id: string,
+    @Body() dto: UpdateStudentDto,
+  ) {
+    return this.studentsService.update(req.user.schoolId, id, dto);
+  }
+
+  @Delete(':id')
+  @Roles(Role.SCHOOL_ADMIN)
+  delete(@Req() req: { user: RequestUser }, @Param('id') id: string) {
+    return this.studentsService.delete(req.user.schoolId, id);
+  }
+
+  @Post('bulk-upload')
+  @Roles(Role.SCHOOL_ADMIN)
+  @UseInterceptors(FileInterceptor('file'))
+  @ApiConsumes('multipart/form-data')
+  async bulkUpload(
+    @Req() req: { user: RequestUser },
+    @UploadedFile() file: any,
+  ) {
+    if (!file) {
+      throw new Error('No file uploaded');
+    }
+    return this.studentsService.bulkUploadCSV(req.user.schoolId, file.buffer);
   }
 }

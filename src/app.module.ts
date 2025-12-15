@@ -6,6 +6,7 @@ import { ConfigModule } from '@nestjs/config';
 import { PrismaModule } from './prisma/prisma.module';
 import { AuthModule } from './modules/auth/auth.module';
 import { SchoolsModule } from './modules/schools/schools.module';
+import { TeachersModule } from './modules/teachers/teachers.module';
 import { StudentsModule } from './modules/students/students.module';
 import { AttendanceModule } from './modules/attendance/attendance.module';
 import { AnnouncementModule } from './modules/announcements/announcement.module';
@@ -17,6 +18,7 @@ import { AnnouncementModule } from './modules/announcements/announcement.module'
     PrismaModule,
     AuthModule,
     SchoolsModule,
+    TeachersModule,
     StudentsModule,
     AttendanceModule,
     AnnouncementModule,
