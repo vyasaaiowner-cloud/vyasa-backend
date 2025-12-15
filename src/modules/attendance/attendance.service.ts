@@ -1,12 +1,13 @@
-import { BadRequestException, Injectable } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, Injectable } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { MarkAttendanceDto } from './dto/mark-attendance.dto';
+import { Role } from '@prisma/client';
 
 @Injectable()
 export class AttendanceService {
   constructor(private prisma: PrismaService) {}
 
-  async markAttendance(schoolId: string, userId: string, dto: MarkAttendanceDto) {
+  async markAttendance(schoolId: string, userId: string, userRole: Role, dto: MarkAttendanceDto) {
     const attendanceDate = new Date(dto.date);
     attendanceDate.setHours(0, 0, 0, 0); // Normalize to start of day
 
@@ -25,6 +26,35 @@ export class AttendanceService {
 
         if (!section) {
           throw new BadRequestException('Section not found in this school');
+        }
+
+        // *** ENFORCE TEACHER ASSIGNMENT ***
+        // Only teachers need to be assigned to sections
+        // School admins can mark attendance for any section
+        if (userRole === Role.TEACHER) {
+          const teacher = await tx.teacher.findUnique({
+            where: { userId },
+            select: { id: true },
+          });
+
+          if (!teacher) {
+            throw new ForbiddenException('Teacher profile not found');
+          }
+
+          const assignment = await tx.teacherAssignment.findUnique({
+            where: {
+              teacherId_sectionId: {
+                teacherId: teacher.id,
+                sectionId: dto.sectionId,
+              },
+            },
+          });
+
+          if (!assignment) {
+            throw new ForbiddenException(
+              'You are not assigned to this section. Please contact your administrator.',
+            );
+          }
         }
 
         // *** DB-LEVEL ENFORCEMENT: Try to create tracking record ***

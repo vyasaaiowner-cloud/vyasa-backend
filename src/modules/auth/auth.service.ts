@@ -79,8 +79,10 @@ export class AuthService {
         },
       });
 
-      // For MVP, log the OTP instead of sending SMS/Email
-      console.log(`OTP for ${contact} (${type}): ${code}`);
+      // For MVP, log the OTP in development only (never in production)
+      if (process.env.NODE_ENV !== 'production') {
+        console.log(`[DEV] OTP for ${contact} (${type}): ${code}`);
+      }
 
       return { message: 'OTP sent successfully' };
     } catch (error) {
@@ -319,7 +321,6 @@ export class AuthService {
   }
 
   async getProfile(userId: string) {
-    console.log('Fetching profile for userId:', userId);
     const user = await this.prisma.user.findUnique({
       where: { id: userId },
       select: {

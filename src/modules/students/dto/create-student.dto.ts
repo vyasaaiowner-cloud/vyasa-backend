@@ -17,9 +17,10 @@ export class CreateStudentDto {
   @IsNotEmpty()
   sectionId: string;
 
-  @ApiProperty()
+  @ApiProperty({ required: false })
+  @IsOptional()
   @IsNumber()
-  rollNo: number;
+  rollNo?: number;
 
   @ApiProperty({ required: false })
   @IsOptional()
