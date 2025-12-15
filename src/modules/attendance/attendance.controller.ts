@@ -18,7 +18,7 @@ export class AttendanceController {
   @Post('mark')
   @Roles(Role.TEACHER, Role.SCHOOL_ADMIN)
   markAttendance(@Body() dto: MarkAttendanceDto, @Req() req: { user: RequestUser }) {
-    return this.attendanceService.markAttendance(req.user.schoolId, dto);
+    return this.attendanceService.markAttendance(req.user.schoolId, req.user.sub, dto);
   }
 
   @Get('section/:sectionId')

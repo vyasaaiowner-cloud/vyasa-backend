@@ -17,9 +17,12 @@ import { SchoolScopeGuard } from '../../common/guards/school-scope.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { SchoolId } from '../../common/decorators/school-id.decorator';
 import { Role } from '@prisma/client';
+import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 
+@ApiTags('holidays')
 @Controller('holidays')
 @UseGuards(JwtAuthGuard, RolesGuard, SchoolScopeGuard)
+@ApiBearerAuth('access-token')
 export class HolidaysController {
   constructor(private readonly holidaysService: HolidaysService) {}
 

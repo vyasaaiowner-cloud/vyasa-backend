@@ -36,10 +36,11 @@ model School {
   students      Student[]
   teachers      Teacher[]
   classes       Class[]
-  sections      Section[]
-  attendance    Attendance[]
-  announcements Announcement[]
-  holidays      Holiday[]
+  sections                 Section[]
+  attendance               Attendance[]
+  announcements            Announcement[]
+  holidays                 Holiday[]
+  sectionAttendanceRecords SectionAttendanceRecord[]
 }
 
 model User {
@@ -132,8 +133,9 @@ model Section {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  teacherAssignments TeacherAssignment[]
-  students           Student[]
+  teacherAssignments      TeacherAssignment[]
+  students                Student[]
+  sectionAttendanceRecords SectionAttendanceRecord[]
 
   @@unique([classId, name])
   @@index([schoolId])
@@ -185,6 +187,23 @@ model Attendance {
   @@unique([studentId, date, schoolId])
   @@index([schoolId, date])
   @@index([studentId, date])
+}
+
+model SectionAttendanceRecord {
+  id        String   @id @default(cuid())
+  sectionId String
+  date      DateTime @db.Date
+  schoolId  String
+  markedBy  String   // User ID who marked the attendance
+  
+  section   Section  @relation(fields: [sectionId], references: [id])
+  school    School   @relation(fields: [schoolId], references: [id])
+  
+  createdAt DateTime @default(now())
+
+  @@unique([sectionId, date, schoolId])
+  @@index([schoolId, date])
+  @@index([sectionId, date])
 }
 
 model Announcement {

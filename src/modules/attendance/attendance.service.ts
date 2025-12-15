@@ -6,7 +6,7 @@ import { MarkAttendanceDto } from './dto/mark-attendance.dto';
 export class AttendanceService {
   constructor(private prisma: PrismaService) {}
 
-  async markAttendance(schoolId: string, dto: MarkAttendanceDto) {
+  async markAttendance(schoolId: string, userId: string, dto: MarkAttendanceDto) {
     const attendanceDate = new Date(dto.date);
     attendanceDate.setHours(0, 0, 0, 0); // Normalize to start of day
 
@@ -27,22 +27,17 @@ export class AttendanceService {
           throw new BadRequestException('Section not found in this school');
         }
 
-        // Check if attendance already marked for this section/date
-        const existing = await tx.attendance.findFirst({
-          where: {
-            schoolId,
+        // *** DB-LEVEL ENFORCEMENT: Try to create tracking record ***
+        // This will fail with a unique constraint violation if attendance
+        // for this section/date already exists, preventing race conditions
+        await tx.sectionAttendanceRecord.create({
+          data: {
+            sectionId: dto.sectionId,
             date: attendanceDate,
-            student: {
-              sectionId: dto.sectionId,
-            },
+            schoolId,
+            markedBy: userId,
           },
         });
-
-        if (existing) {
-          throw new BadRequestException(
-            'Attendance already marked for this section on this date',
-          );
-        }
 
         // Verify all students belong to this section and school
         const students = await tx.student.findMany({
