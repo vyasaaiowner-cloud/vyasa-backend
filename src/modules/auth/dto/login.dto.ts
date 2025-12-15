@@ -1,4 +1,4 @@
-import { IsString, IsPhoneNumber, IsOptional, IsEmail } from 'class-validator';
+import { IsString, IsOptional, IsEmail, ValidateIf } from 'class-validator';
 import { ApiProperty } from '@nestjs/swagger';
 
 export class LoginDto {
@@ -18,6 +18,7 @@ export class LoginDto {
 
   @ApiProperty({ required: false, default: 'john.doe@example.com' })
   @IsOptional()
+  @ValidateIf((o) => o.email !== '' && o.email !== null && o.email !== undefined)
   @IsEmail()
   email?: string;
 }
