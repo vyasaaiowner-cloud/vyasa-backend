@@ -1,25 +1,19 @@
-import { IsString, IsOptional, IsEmail, ValidateIf } from 'class-validator';
+import { IsString, IsNotEmpty } from 'class-validator';
 import { ApiProperty } from '@nestjs/swagger';
 
 export class LoginDto {
-  @ApiProperty({ required: false, default: '+91' })
-  @IsOptional()
+  @ApiProperty({ description: 'Country code with + prefix', example: '+91' })
   @IsString()
-  countryCode?: string;
+  @IsNotEmpty()
+  countryCode: string;
 
-  @ApiProperty({ required: false, default: '1234567890' })
-  @IsOptional()
+  @ApiProperty({ description: 'Mobile number without country code', example: '9876543210' })
   @IsString()
-  mobileNo?: string;
+  @IsNotEmpty()
+  mobileNo: string;
 
-  @ApiProperty({ default: '123456' })
+  @ApiProperty({ description: '6-digit OTP received on mobile', example: '123456' })
   @IsString()
+  @IsNotEmpty()
   otp: string;
-
-  @ApiProperty({ required: false, default: 'john.doe@example.com' })
-  @IsOptional()
-  @ValidateIf((o) => o.email !== '' && o.email !== null && o.email !== undefined)
-  @IsEmail()
-  email?: string;
 }
-

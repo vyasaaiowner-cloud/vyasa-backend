@@ -34,24 +34,11 @@ export class AuthService {
   ) {}
 
   async sendOtp(dto: SendOtpDto, ipAddress?: string) {
-    // Normalize inputs
     try {
-      // Validate: either email OR phone (not both, not neither)
-      const hasEmail = dto.email !== undefined && dto.email !== null && dto.email.trim() !== '';
-      const hasPhone = !!dto.countryCode && !!dto.mobileNo && dto.mobileNo.trim() !== '';
-
-      if (!hasEmail && !hasPhone) {
-        throw new BadRequestException('Either email or phone must be provided');
-      }
-
-      if (hasEmail && hasPhone) {
-        throw new BadRequestException('Provide either email or phone, not both');
-      }
-
-      const email = hasEmail ? normalizeEmail(dto.email) : null;
-      const phoneE164 = hasPhone ? normalizeE164(dto.countryCode!, dto.mobileNo!) : null;
-      const contact = email || phoneE164!;
-      const type = hasEmail ? OtpType.EMAIL : OtpType.PHONE;
+      // Phase 0: Mobile OTP only
+      const phoneE164 = normalizeE164(dto.countryCode, dto.mobileNo);
+      const contact = phoneE164;
+      const type = OtpType.PHONE;
 
       // Check rate limit (by contact + IP)
       if (ipAddress) {
@@ -95,23 +82,10 @@ export class AuthService {
 
   async register(dto: RegisterDto) {
     try {
-      // Validate: either email OR phone (not both, not neither)
-      const hasEmail = dto.email !== undefined && dto.email !== null && dto.email.trim() !== '';
-      const hasPhone = !!dto.countryCode && !!dto.mobileNo && dto.mobileNo.trim() !== '';
-
-      if (!hasEmail && !hasPhone) {
-        throw new BadRequestException('Either email or phone must be provided');
-      }
-
-      if (hasEmail && hasPhone) {
-        throw new BadRequestException('Provide either email or phone, not both');
-      }
-
-      // Normalize inputs
-      const email = hasEmail ? normalizeEmail(dto.email) : null;
-      const phoneE164 = hasPhone ? normalizeE164(dto.countryCode!, dto.mobileNo!) : null;
-      const contact = email || phoneE164!;
-      const type = hasEmail ? OtpType.EMAIL : OtpType.PHONE;
+      // Phase 0: Mobile OTP only
+      const phoneE164 = normalizeE164(dto.countryCode, dto.mobileNo);
+      const contact = phoneE164;
+      const type = OtpType.PHONE;
 
       // Verify OTP
       const otpRecord = await this.prisma.otp.findFirst({
@@ -136,21 +110,11 @@ export class AuthService {
         throw new BadRequestException('Invalid OTP');
       }
 
-      // Check if phone already exists (only when phone flow)
-      if (phoneE164) {
-        const existingPhone = await this.prisma.user.findUnique({
-          where: { phoneE164 },
-        });
-        if (existingPhone) throw new BadRequestException('Phone already exists');
-      }
-
-      // Only check email if provided
-      if (email) {
-        const existingEmail = await this.prisma.user.findUnique({
-          where: { email },
-        });
-        if (existingEmail) throw new BadRequestException('Email already exists');
-      }
+      // Check if phone already exists
+      const existingPhone = await this.prisma.user.findUnique({
+        where: { phoneE164 },
+      });
+      if (existingPhone) throw new BadRequestException('Phone already registered');
 
     // Enforce schoolId rules
     // - SUPER_ADMIN: auto-assign platform school
@@ -207,8 +171,8 @@ export class AuthService {
         phoneE164,
         phoneCode,
         phoneNumber,
-        email,
-        emailVerified: type === OtpType.EMAIL,
+        email: null,
+        emailVerified: false,
         name: dto.name.trim(),
         role: dto.role,
         schoolId: schoolId, // Required by schema; SUPER_ADMIN auto-assigned to platform school
@@ -238,23 +202,10 @@ export class AuthService {
 
   async login(dto: LoginDto, ipAddress?: string) {
     try {
-      // Validate: either email OR phone (not both, not neither)
-      const hasEmail = !!dto.email && dto.email.trim() !== '';
-      const hasPhone = !!dto.countryCode && !!dto.mobileNo;
-
-      if (!hasEmail && !hasPhone) {
-        throw new BadRequestException('Either email or phone must be provided');
-      }
-
-      if (hasEmail && hasPhone) {
-        throw new BadRequestException('Provide either email or phone, not both');
-      }
-
-      // Normalize inputs
-      const email = normalizeEmail(dto.email);
-      const phoneE164 = hasPhone ? normalizeE164(dto.countryCode!, dto.mobileNo!) : null;
-      const contact = email || phoneE164!;
-      const type = getContactType(dto.email);
+      // Phase 0: Mobile OTP only
+      const phoneE164 = normalizeE164(dto.countryCode, dto.mobileNo);
+      const contact = phoneE164;
+      const type = OtpType.PHONE;
 
       // Verify OTP
       const otpRecord = await this.prisma.otp.findFirst({
@@ -277,10 +228,8 @@ export class AuthService {
         throw new UnauthorizedException('Invalid OTP');
       }
 
-      // Find user by phone or email based on type
-      const user = type === OtpType.PHONE
-        ? await this.prisma.user.findUnique({ where: { phoneE164: contact } })
-        : await this.prisma.user.findUnique({ where: { email: contact } });
+      // Find user by phone
+      const user = await this.prisma.user.findUnique({ where: { phoneE164: contact } });
       
       // If user doesn't exist, return needsRegistration flag
       if (!user) {
@@ -292,7 +241,7 @@ export class AuthService {
         
         return { 
           needsRegistration: true,
-          contact: type === OtpType.PHONE ? { phoneE164: contact } : { email: contact },
+          contact: { phoneE164: contact },
           message: 'User not found. Please complete registration.',
         };
       }

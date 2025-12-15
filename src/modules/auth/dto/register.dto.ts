@@ -1,39 +1,34 @@
-import { IsEnum, IsOptional, IsString, IsEmail, MinLength, ValidateIf } from 'class-validator';
+import { IsEnum, IsOptional, IsString, IsNotEmpty, MinLength } from 'class-validator';
 import { Role } from '@prisma/client';
 import { ApiProperty } from '@nestjs/swagger';
 
 export class RegisterDto {
-  @ApiProperty({ required: false, default: '+91' })
-  @IsOptional()
+  @ApiProperty({ description: 'Country code with + prefix', example: '+91' })
   @IsString()
-  countryCode?: string;
+  @IsNotEmpty()
+  countryCode: string;
 
-  @ApiProperty({ required: false, default: '1234567890' })
-  @IsOptional()
+  @ApiProperty({ description: 'Mobile number without country code', example: '9876543210' })
   @IsString()
-  mobileNo?: string;
+  @IsNotEmpty()
+  mobileNo: string;
 
-  @ApiProperty({ default: '123456' })
+  @ApiProperty({ description: '6-digit OTP received on mobile', example: '123456' })
   @IsString()
+  @IsNotEmpty()
   otp: string;
 
-  @ApiProperty({ enum: Role, default: Role.SUPER_ADMIN })
+  @ApiProperty({ enum: Role, example: Role.SCHOOL_ADMIN })
   @IsEnum(Role)
   role: Role;
 
-  @ApiProperty({ required: false, default: 'school-id-here' })
+  @ApiProperty({ required: false, description: 'School ID (required for non-SUPER_ADMIN roles)' })
   @IsOptional()
   @IsString()
   schoolId?: string;
 
-  @ApiProperty({ default: 'John Doe' })
+  @ApiProperty({ description: 'Full name of the user', example: 'John Doe' })
   @IsString()
   @MinLength(2)
   name: string;
-
-  @ApiProperty({ default: 'john.doe@example.com', required: false })
-  @IsOptional()
-  @ValidateIf((o) => o.email !== '' && o.email !== null && o.email !== undefined)
-  @IsEmail()
-  email?: string;
 }
