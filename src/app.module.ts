@@ -11,6 +11,8 @@ import { StudentsModule } from './modules/students/students.module';
 import { AttendanceModule } from './modules/attendance/attendance.module';
 import { AnnouncementModule } from './modules/announcements/announcement.module';
 import { HolidaysModule } from './modules/holidays/holidays.module';
+import { ClassesModule } from './modules/classes/classes.module';
+import { SectionsModule } from './modules/sections/sections.module';
 
 @Module({
   imports: [
@@ -19,6 +21,8 @@ import { HolidaysModule } from './modules/holidays/holidays.module';
     PrismaModule,
     AuthModule,
     SchoolsModule,
+    ClassesModule,
+    SectionsModule,
     TeachersModule,
     StudentsModule,
     AttendanceModule,

@@ -36,7 +36,7 @@ export class StudentsService {
             name: dto.name.trim(),
             classId: dto.classId,
             sectionId: dto.sectionId,
-            rollNo: dto.rollNo,
+            rollNo: dto.rollNo ?? null,
             schoolId,
           },
         });
@@ -233,7 +233,7 @@ export class StudentsService {
           ...(dto.name && { name: dto.name.trim() }),
           ...(dto.classId && { classId: dto.classId }),
           ...(dto.sectionId && { sectionId: dto.sectionId }),
-          ...(dto.rollNo !== undefined && { rollNo: dto.rollNo }),
+          ...(dto.rollNo !== undefined && { rollNo: dto.rollNo ?? null }),
         },
         include: {
           class: true,
