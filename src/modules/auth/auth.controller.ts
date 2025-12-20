@@ -7,6 +7,7 @@ import { SendOtpDto } from './dto/send-otp.dto';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { RequestUser } from '../../common/types/request-user.type';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
+import { Throttle } from '@nestjs/throttler';
 
 @ApiTags('auth')
 @Controller('auth')
@@ -26,16 +27,19 @@ export class AuthController {
   }
 
   @Post('send-otp')
+  @Throttle({ default: { ttl: 60000, limit: 5 } }) // 5 requests per minute per IP
   sendOtp(@Body() dto: SendOtpDto, @Req() req: Request) {
     return this.auth.sendOtp(dto, this.getClientIp(req));
   }
 
   @Post('register')
+  @Throttle({ default: { ttl: 60000, limit: 10 } }) // 10 requests per minute per IP
   register(@Body() dto: RegisterDto) {
     return this.auth.register(dto);
   }
 
   @Post('login')
+  @Throttle({ default: { ttl: 60000, limit: 10 } }) // 10 requests per minute per IP
   login(@Body() dto: LoginDto, @Req() req: Request) {
     return this.auth.login(dto, this.getClientIp(req));
   }

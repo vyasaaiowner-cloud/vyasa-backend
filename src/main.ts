@@ -3,9 +3,13 @@ import { AppModule } from './app.module';
 import { ValidationPipe } from '@nestjs/common';
 import { PrismaExceptionFilter } from './common/filters/prisma-exception.filter';
 import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger';
+import helmet from 'helmet';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
+
+  // ✅ Security headers with Helmet
+  app.use(helmet());
 
   // ✅ Enable CORS with environment-driven origins
   const corsOrigins = process.env.CORS_ORIGINS
@@ -27,9 +31,10 @@ async function bootstrap() {
   // ✅ Validation
   app.useGlobalPipes(
     new ValidationPipe({
-      whitelist: true,
-      forbidNonWhitelisted: true,
-      transform: true,
+      whitelist: true,            // strips unknown fields
+      forbidNonWhitelisted: true, // throws if extra fields sent
+      transform: true,            // auto-transform DTO types
+      transformOptions: { enableImplicitConversion: true },
     }),
   );
 

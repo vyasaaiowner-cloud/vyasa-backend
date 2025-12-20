@@ -1,4 +1,4 @@
-import { Module } from '@nestjs/common';
+import { Module, MiddlewareConsumer, NestModule } from '@nestjs/common';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { HealthModule } from './modules/health/health.module';
@@ -13,10 +13,19 @@ import { AnnouncementModule } from './modules/announcements/announcement.module'
 import { HolidaysModule } from './modules/holidays/holidays.module';
 import { ClassesModule } from './modules/classes/classes.module';
 import { SectionsModule } from './modules/sections/sections.module';
+import { LoggerMiddleware } from './common/middleware/logger.middleware';
+import { ThrottlerModule } from '@nestjs/throttler';
 
 @Module({
   imports: [
     ConfigModule.forRoot({ isGlobal: true }),
+    ThrottlerModule.forRoot([
+      {
+        // General global limit (all endpoints)
+        ttl: 60000, // milliseconds (60 seconds)
+        limit: 120, // requests per minute per IP
+      },
+    ]),
     HealthModule,
     PrismaModule,
     AuthModule,
@@ -32,4 +41,8 @@ import { SectionsModule } from './modules/sections/sections.module';
   controllers: [AppController],
   providers: [AppService],
 })
-export class AppModule {}
+export class AppModule implements NestModule {
+  configure(consumer: MiddlewareConsumer) {
+    consumer.apply(LoggerMiddleware).forRoutes('*');
+  }
+}
