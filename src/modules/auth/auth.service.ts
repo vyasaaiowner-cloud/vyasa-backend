@@ -46,8 +46,30 @@ export class AuthService {
         await this.otpSecurity.recordOtpRequest(contact, ipAddress);
       }
 
-      // Generate 6-digit OTP using crypto (secure random)
-      const code = randomInt(100000, 1000000).toString();
+      // *** UAT/TEST: Static OTP for test numbers (non-production only) ***
+      let code: string;
+      const isProduction = process.env.NODE_ENV === 'production';
+      const testOtpConfig = process.env.TEST_OTP_NUMBERS || '';
+      
+      if (!isProduction && testOtpConfig) {
+        const testNumbers = testOtpConfig.split(',').map(entry => {
+          const [phone, otp] = entry.split(':');
+          return { phone: phone?.trim(), otp: otp?.trim() };
+        });
+        
+        const testEntry = testNumbers.find(entry => entry.phone === contact);
+        if (testEntry && testEntry.otp) {
+          code = testEntry.otp;
+          console.log(`[UAT] Using static OTP for test number ${contact}: ${code}`);
+        } else {
+          // Not a test number, generate random OTP
+          code = randomInt(100000, 1000000).toString();
+        }
+      } else {
+        // Production or no test config: always generate random OTP
+        code = randomInt(100000, 1000000).toString();
+      }
+      
       const codeHash = await bcrypt.hash(code, 10);
       const expiresAt = new Date(Date.now() + 5 * 60 * 1000); // 5 minutes
 
