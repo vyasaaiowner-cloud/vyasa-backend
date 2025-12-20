@@ -227,34 +227,113 @@ export class StudentsService {
     }
 
     try {
-      return await this.prisma.student.update({
-        where: { id: studentId },
-        data: {
-          ...(dto.name && { name: dto.name.trim() }),
-          ...(dto.classId && { classId: dto.classId }),
-          ...(dto.sectionId && { sectionId: dto.sectionId }),
-          ...(dto.rollNo !== undefined && { rollNo: dto.rollNo ?? null }),
-        },
-        include: {
-          class: true,
-          section: true,
-          parents: {
-            include: {
-              parent: {
-                select: {
-                  id: true,
-                  name: true,
-                  email: true,
-                  phoneE164: true,
-                  phoneCode: true,
-                  phoneNumber: true,
+      return await this.prisma.$transaction(async (tx) => {
+        // Update student basic info
+        const updatedStudent = await tx.student.update({
+          where: { id: studentId },
+          data: {
+            ...(dto.name && { name: dto.name.trim() }),
+            ...(dto.classId && { classId: dto.classId }),
+            ...(dto.sectionId && { sectionId: dto.sectionId }),
+            ...(dto.rollNo !== undefined && { rollNo: dto.rollNo ?? null }),
+          },
+        });
+
+        // Handle parent updates if provided
+        if (dto.parents && dto.parents.length > 0) {
+          // Remove existing parent links
+          await tx.parentStudent.deleteMany({
+            where: { studentId },
+          });
+
+          // Process each parent
+          for (const parentInfo of dto.parents) {
+            let parentId = parentInfo.parentId;
+
+            // If parentId not provided, create or find parent
+            if (!parentId && parentInfo.countryCode && parentInfo.mobileNo && parentInfo.name) {
+              const phoneE164 = normalizeE164(parentInfo.countryCode, parentInfo.mobileNo);
+              const email = parentInfo.email?.toLowerCase();
+
+              // Check if parent user exists
+              let parent = await tx.user.findFirst({
+                where: {
+                  OR: [
+                    { phoneE164 },
+                    ...(email ? [{ email }] : []),
+                  ],
+                },
+              });
+
+              // Create parent user if doesn't exist
+              if (!parent) {
+                parent = await tx.user.create({
+                  data: {
+                    phoneE164,
+                    phoneCode: parentInfo.countryCode.startsWith('+')
+                      ? parentInfo.countryCode
+                      : '+' + parentInfo.countryCode,
+                    phoneNumber: parentInfo.mobileNo,
+                    email,
+                    emailVerified: false,
+                    name: parentInfo.name.trim(),
+                    role: Role.PARENT,
+                    schoolId,
+                  },
+                });
+              } else {
+                // Verify parent belongs to same school
+                if (parent.schoolId !== schoolId) {
+                  throw new BadRequestException('Parent belongs to a different school');
+                }
+                // Verify user is a parent
+                if (parent.role !== Role.PARENT) {
+                  throw new BadRequestException('User exists but is not a parent');
+                }
+              }
+
+              parentId = parent.id;
+            }
+
+            // Link parent to student
+            if (parentId) {
+              await tx.parentStudent.create({
+                data: {
+                  parentId,
+                  studentId,
+                },
+              });
+            }
+          }
+        }
+
+        // Return complete student data
+        return await tx.student.findUnique({
+          where: { id: studentId },
+          include: {
+            class: true,
+            section: true,
+            parents: {
+              include: {
+                parent: {
+                  select: {
+                    id: true,
+                    name: true,
+                    email: true,
+                    phoneE164: true,
+                    phoneCode: true,
+                    phoneNumber: true,
+                  },
                 },
               },
             },
           },
-        },
+        });
       });
     } catch (e: any) {
+      if (e instanceof BadRequestException) {
+        throw e;
+      }
       if (e?.code === 'P2002') {
         throw new BadRequestException(
           'Student with this roll number already exists in this class/section',
