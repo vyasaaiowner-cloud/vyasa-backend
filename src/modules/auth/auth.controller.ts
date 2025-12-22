@@ -27,7 +27,7 @@ export class AuthController {
   }
 
   @Post('send-otp')
-  @Throttle({ default: { ttl: 60000, limit: 5 } }) // 5 requests per minute per IP
+  @Throttle({ default: { ttl: 60000, limit: 10 } }) // 20 requests per minute per IP (database has 5 per 15min limit)
   sendOtp(@Body() dto: SendOtpDto, @Req() req: Request) {
     return this.auth.sendOtp(dto, this.getClientIp(req));
   }
