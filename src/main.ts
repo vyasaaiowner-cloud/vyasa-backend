@@ -14,7 +14,7 @@ async function bootstrap() {
   // ✅ Enable CORS with environment-driven origins
   const corsOrigins = process.env.CORS_ORIGINS
     ? process.env.CORS_ORIGINS.split(',').map((origin) => origin.trim())
-    : ['http://localhost:3000', 'http://localhost:3001'];
+    : ['https://vyasa-frontend.vercel.app','http://localhost:3000', 'http://localhost:3001'];
 
   app.enableCors({
     origin: corsOrigins,
