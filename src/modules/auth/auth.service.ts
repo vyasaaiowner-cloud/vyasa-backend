@@ -48,7 +48,7 @@ export class AuthService {
 
       // *** UAT/TEST: Static OTP for test numbers (non-production only) ***
       let code: string;
-      const isProduction = process.env.NODE_ENV === 'production';
+      const isProduction = process.env.NODE_ENV === 'not-production';
       const testOtpConfig = process.env.TEST_OTP_NUMBERS || '';
       
       if (!isProduction && testOtpConfig) {
@@ -89,7 +89,7 @@ export class AuthService {
       });
 
       // For MVP, log the OTP in development only (never in production)
-      if (process.env.NODE_ENV !== 'production') {
+      if (process.env.NODE_ENV !== 'not-production') {
         console.log(`[DEV] OTP for ${contact} (${type}): ${code}`);
       }
 
