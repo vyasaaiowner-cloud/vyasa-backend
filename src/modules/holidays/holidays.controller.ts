@@ -8,7 +8,11 @@ import {
   Delete,
   UseGuards,
   Req,
+  UseInterceptors,
+  UploadedFile,
+  BadRequestException,
 } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
 import { HolidaysService } from './holidays.service';
 import { CreateHolidayDto } from './dto/create-holiday.dto';
 import { UpdateHolidayDto } from './dto/update-holiday.dto';
@@ -66,5 +70,32 @@ export class HolidaysController {
   @Roles(Role.SUPER_ADMIN, Role.SCHOOL_ADMIN)
   remove(@Param('id') id: string, @Req() req: { user: RequestUser }) {
     return this.holidaysService.remove(id, req.user.schoolId);
+  }
+
+  // Admin-only: Bulk upload holidays from CSV/Excel
+  @Post('bulk-upload')
+  @Roles(Role.SUPER_ADMIN, Role.SCHOOL_ADMIN)
+  @UseInterceptors(
+    FileInterceptor('file', {
+      limits: { fileSize: 5 * 1024 * 1024 }, // 5MB
+      fileFilter: (req, file, cb) => {
+        if (!file.originalname.match(/\.(csv|xlsx|xls)$/)) {
+          return cb(
+            new BadRequestException('Only CSV and Excel files are allowed'),
+            false,
+          );
+        }
+        cb(null, true);
+      },
+    }),
+  )
+  bulkUpload(
+    @UploadedFile() file: Express.Multer.File,
+    @Req() req: { user: RequestUser },
+  ) {
+    if (!file) {
+      throw new BadRequestException('File is required');
+    }
+    return this.holidaysService.bulkUploadHolidays(file, req.user.schoolId);
   }
 }

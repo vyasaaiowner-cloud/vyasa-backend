@@ -1,4 +1,5 @@
-import { Body, Controller, Delete, Get, Param, Patch, Post, Put, Query, Req, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Patch, Post, Put, Query, Req, UseGuards, UseInterceptors, UploadedFile, BadRequestException } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
 import { TeachersService } from './teachers.service';
 import { CreateTeacherDto } from './dto/create-teacher.dto';
 import { UpdateTeacherDto } from './dto/update-teacher.dto';
@@ -27,6 +28,12 @@ export class TeachersController {
   @ApiQuery({ name: 'includeInactive', required: false, type: Boolean })
   findAll(@Req() req: { user: RequestUser }, @Query('includeInactive') includeInactive?: string) {
     return this.teachersService.findAll(req.user.schoolId, includeInactive === 'true');
+  }
+
+  @Get('dashboard/stats')
+  @Roles(Role.TEACHER)
+  getDashboardStats(@Req() req: { user: RequestUser }) {
+    return this.teachersService.getDashboardStats(req.user.schoolId, req.user.sub);
   }
 
   @Get(':id')
@@ -61,5 +68,31 @@ export class TeachersController {
   @Roles(Role.SCHOOL_ADMIN)
   delete(@Req() req: { user: RequestUser }, @Param('id') id: string) {
     return this.teachersService.delete(req.user.schoolId, id);
+  }
+
+  @Post('bulk-upload')
+  @Roles(Role.SCHOOL_ADMIN)
+  @UseInterceptors(
+    FileInterceptor('file', {
+      limits: { fileSize: 5 * 1024 * 1024 }, // 5MB
+      fileFilter: (req, file, cb) => {
+        if (!file.originalname.match(/\.(csv|xlsx|xls)$/)) {
+          return cb(
+            new BadRequestException('Only CSV and Excel files are allowed'),
+            false,
+          );
+        }
+        cb(null, true);
+      },
+    }),
+  )
+  bulkUpload(
+    @UploadedFile() file: Express.Multer.File,
+    @Req() req: { user: RequestUser },
+  ) {
+    if (!file) {
+      throw new BadRequestException('File is required');
+    }
+    return this.teachersService.bulkUploadTeachers(file, req.user.schoolId);
   }
 }

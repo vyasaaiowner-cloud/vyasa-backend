@@ -6,7 +6,7 @@ import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { Role } from '@prisma/client';
-import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
+import { ApiBearerAuth, ApiTags, ApiQuery } from '@nestjs/swagger';
 import { RequestUser } from '../../common/types/request-user.type';
 
 @ApiTags('sections')
@@ -24,6 +24,7 @@ export class SectionsController {
 
   @Get()
   @Roles(Role.SUPER_ADMIN, Role.SCHOOL_ADMIN, Role.TEACHER, Role.PARENT)
+  @ApiQuery({ name: 'classId', required: false, description: 'Filter sections by class ID' })
   findAll(@Req() req: { user: RequestUser }, @Query('classId') classId?: string) {
     return this.sectionsService.findAll(req.user.schoolId, classId);
   }

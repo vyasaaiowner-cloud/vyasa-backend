@@ -11,6 +11,13 @@ export class AttendanceService {
     const attendanceDate = new Date(dto.date);
     attendanceDate.setHours(0, 0, 0, 0); // Normalize to start of day
 
+    // Prevent marking attendance for future dates
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    if (attendanceDate > today) {
+      throw new BadRequestException('Cannot mark attendance for future dates');
+    }
+
     try {
       return await this.prisma.$transaction(async (tx) => {
         // Verify section exists and belongs to school
@@ -113,9 +120,100 @@ export class AttendanceService {
     }
   }
 
+  async getAttendanceBySectionAndDate(
+    schoolId: string,
+    sectionId: string,
+    dateString: string,
+  ) {
+    const date = new Date(dateString);
+    date.setHours(0, 0, 0, 0);
+
+    // Verify section exists and belongs to school
+    const section = await this.prisma.section.findFirst({
+      where: {
+        id: sectionId,
+        schoolId,
+      },
+      include: {
+        class: true,
+      },
+    });
+
+    if (!section) {
+      throw new BadRequestException('Section not found in this school');
+    }
+
+    // Get all students in this section
+    const students = await this.prisma.student.findMany({
+      where: {
+        sectionId,
+        schoolId,
+      },
+      select: {
+        id: true,
+        name: true,
+        rollNo: true,
+      },
+      orderBy: {
+        rollNo: 'asc',
+      },
+    });
+
+    // Get existing attendance for this date
+    const existingAttendance = await this.prisma.attendance.findMany({
+      where: {
+        date,
+        schoolId,
+        student: {
+          sectionId,
+        },
+      },
+    });
+
+    // Create a map of studentId -> attendance status
+    const attendanceMap = new Map(
+      existingAttendance.map((att) => [att.studentId, att.status]),
+    );
+
+    // Combine students with their attendance status
+    const studentsWithAttendance = students.map((student) => ({
+      ...student,
+      status: attendanceMap.get(student.id) || null,
+    }));
+
+    // Calculate counts
+    const presentCount = existingAttendance.filter(
+      (att) => att.status === 'PRESENT',
+    ).length;
+    const absentCount = existingAttendance.filter(
+      (att) => att.status === 'ABSENT',
+    ).length;
+
+    return {
+      date,
+      section: {
+        id: section.id,
+        name: section.name,
+        class: {
+          id: section.class.id,
+          name: section.class.name,
+        },
+      },
+      students: studentsWithAttendance,
+      summary: {
+        totalStudents: students.length,
+        present: presentCount,
+        absent: absentCount,
+        notMarked: students.length - existingAttendance.length,
+        isMarked: existingAttendance.length > 0,
+      },
+    };
+  }
+
   async getAttendanceBySection(
     schoolId: string,
     sectionId: string,
+    date?: string,
     startDate?: string,
     endDate?: string,
   ) {
@@ -126,7 +224,17 @@ export class AttendanceService {
       },
     };
 
-    if (startDate || endDate) {
+    // If specific date is provided, use it
+    if (date) {
+      const specificDate = new Date(date);
+      specificDate.setHours(0, 0, 0, 0);
+      const endOfDay = new Date(date);
+      endOfDay.setHours(23, 59, 59, 999);
+      where.date = {
+        gte: specificDate,
+        lte: endOfDay,
+      };
+    } else if (startDate || endDate) {
       where.date = {};
       if (startDate) {
         where.date.gte = new Date(startDate);

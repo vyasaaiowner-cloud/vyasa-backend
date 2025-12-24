@@ -4,6 +4,15 @@ import { CreateTeacherDto } from './dto/create-teacher.dto';
 import { UpdateTeacherDto } from './dto/update-teacher.dto';
 import { Role } from '@prisma/client';
 import { normalizeE164 } from '../auth/validators/phone-and-email.validator';
+import * as XLSX from 'xlsx';
+import { parse } from 'csv-parse/sync';
+
+export interface TeacherRow {
+  name: string;
+  countryCode: string;
+  mobileNo: string;
+  email?: string;
+}
 
 @Injectable()
 export class TeachersService {
@@ -318,5 +327,186 @@ export class TeachersService {
     });
 
     return { message: 'Teacher deleted successfully' };
+  }
+
+  async getDashboardStats(schoolId: string, userId: string) {
+    // Get teacher profile
+    const teacher = await this.prisma.teacher.findUnique({
+      where: { userId },
+      include: {
+        assignments: {
+          include: {
+            section: {
+              include: {
+                class: true,
+                _count: {
+                  select: {
+                    students: true,
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+    });
+
+    if (!teacher) {
+      throw new NotFoundException('Teacher profile not found');
+    }
+
+    // Calculate total students across all assigned sections
+    const totalStudents = teacher.assignments.reduce(
+      (sum, assignment) => sum + assignment.section._count.students,
+      0,
+    );
+
+    // Get unique classes
+    const uniqueClasses = new Set(
+      teacher.assignments.map((assignment) => assignment.section.class.id),
+    );
+
+    // Get section details
+    const sections = teacher.assignments.map((assignment) => ({
+      id: assignment.section.id,
+      name: assignment.section.name,
+      className: assignment.section.class.name,
+      studentCount: assignment.section._count.students,
+    }));
+
+    return {
+      totalStudents,
+      totalSections: teacher.assignments.length,
+      totalClasses: uniqueClasses.size,
+      sections,
+    };
+  }
+
+  async bulkUploadTeachers(file: Express.Multer.File, schoolId: string) {
+    const data = this.parseFile(file);
+    const results = {
+      success: 0,
+      failed: 0,
+      errors: [] as Array<{ row: number; data: TeacherRow; error: string }>,
+      totalRows: data.length,
+    };
+
+    // Validate school exists
+    const school = await this.prisma.school.findUnique({
+      where: { id: schoolId },
+    });
+
+    if (!school) {
+      throw new BadRequestException('Invalid school');
+    }
+
+    for (let i = 0; i < data.length; i++) {
+      const row = data[i];
+      try {
+        // Validate required fields
+        if (!row.name || !row.countryCode || !row.mobileNo) {
+          throw new Error('name, countryCode, and mobileNo are required fields');
+        }
+
+        // Normalize phone number
+        const phoneE164 = normalizeE164(row.countryCode, row.mobileNo);
+        const email = row.email?.toLowerCase();
+
+        // Create or find user
+        let user = await this.prisma.user.findFirst({
+          where: {
+            OR: [
+              { phoneE164 },
+              ...(email ? [{ email }] : []),
+            ],
+          },
+        });
+
+        if (!user) {
+          // Create new user
+          user = await this.prisma.user.create({
+            data: {
+              phoneE164,
+              phoneCode: row.countryCode.startsWith('+') ? row.countryCode : '+' + row.countryCode,
+              phoneNumber: row.mobileNo,
+              email,
+              emailVerified: false,
+              name: row.name.trim(),
+              role: Role.TEACHER,
+              schoolId,
+            },
+          });
+        } else {
+          // Verify user belongs to same school
+          if (user.schoolId !== schoolId) {
+            throw new Error('Teacher belongs to a different school');
+          }
+          // Verify user is a teacher
+          if (user.role !== Role.TEACHER) {
+            throw new Error('User exists but is not a teacher');
+          }
+        }
+
+        // Check if teacher profile already exists
+        const existingTeacher = await this.prisma.teacher.findUnique({
+          where: { userId: user.id },
+        });
+
+        if (existingTeacher) {
+          throw new Error('Teacher already exists');
+        }
+
+        // Create teacher profile
+        await this.prisma.teacher.create({
+          data: {
+            userId: user.id,
+            schoolId,
+            isActive: true,
+          },
+        });
+
+        results.success++;
+      } catch (error) {
+        results.failed++;
+        results.errors.push({
+          row: i + 2, // Excel row number (header is row 1)
+          data: row,
+          error: error.message,
+        });
+      }
+    }
+
+    return {
+      message: 'Bulk upload completed',
+      results,
+    };
+  }
+
+  private parseFile(file: Express.Multer.File): TeacherRow[] {
+    const ext = file.originalname.split('.').pop()?.toLowerCase();
+
+    try {
+      if (ext === 'csv') {
+        const records = parse(file.buffer, {
+          columns: true,
+          skip_empty_lines: true,
+          trim: true,
+        });
+        return records as TeacherRow[];
+      } else if (ext === 'xlsx' || ext === 'xls') {
+        const workbook = XLSX.read(file.buffer, { type: 'buffer' });
+        const sheetName = workbook.SheetNames[0];
+        const data = XLSX.utils.sheet_to_json<TeacherRow>(
+          workbook.Sheets[sheetName],
+        );
+        return data;
+      }
+
+      throw new BadRequestException('Unsupported file format');
+    } catch (error) {
+      throw new BadRequestException(
+        `Failed to parse file: ${error.message}`,
+      );
+    }
   }
 }
