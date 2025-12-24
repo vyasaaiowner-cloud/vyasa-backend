@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Post, Req, UseGuards, Delete, Param, Query } from '@nestjs/common';
+import { Body, Controller, Get, Post, Req, UseGuards, Delete, Param, Query, Res } from '@nestjs/common';
 import type { Request } from 'express';
 import { AuthService } from './auth.service';
 import { RegisterDto } from './dto/register.dto';
@@ -20,7 +20,7 @@ export class AuthController {
   constructor(
     private auth: AuthService,
     private deviceService: DeviceService,
-  ) {}
+  ) { }
 
   /**
    * Helper to extract client IP address
@@ -74,11 +74,15 @@ export class AuthController {
     // Initiates Google OAuth flow
   }
 
-  @Get('google/callback')
+  @Get('callback/google')
   @UseGuards(AuthGuard('google'))
-  async googleAuthCallback(@Req() req: any) {
-    // req.user contains the Google profile from strategy
-    return this.auth.googleAuth(req.user);
+  async googleAuthCallback(@Req() req: any, @Res() res: any) {
+    const result = await this.auth.googleAuth(req.user);
+    // result should include token OR short-lived code
+
+    // OPTION A (quick MVP): send token to frontend in query
+    const redirectUrl = `${process.env.FRONTEND_URL}/auth/google?token=${result.accessToken}`;
+    return res.redirect(redirectUrl);
   }
 
   @Post('google/complete-registration')
