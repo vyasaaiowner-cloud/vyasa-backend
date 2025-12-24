@@ -18,6 +18,8 @@ import {
   getContactType,
 } from './validators/phone-and-email.validator';
 import { OtpSecurityService } from './services/otp-security.service';
+import { SmsService } from './services/sms.service';
+import { DeviceService } from './services/device.service';
 import { randomInt } from 'crypto';
 
 // Recommended: keep SUPER_ADMIN inside a "platform" school for DB integrity + easy scoping.
@@ -31,6 +33,8 @@ export class AuthService {
     private prisma: PrismaService,
     private jwt: JwtService,
     private otpSecurity: OtpSecurityService,
+    private smsService: SmsService,
+    private deviceService: DeviceService,
   ) {}
 
   async sendOtp(dto: SendOtpDto, ipAddress?: string) {
@@ -70,7 +74,6 @@ export class AuthService {
         code = randomInt(100000, 1000000).toString();
       }
       
-      const codeHash = await bcrypt.hash(code, 10);
       const expiresAt = new Date(Date.now() + 5 * 60 * 1000); // 5 minutes
 
       // Invalidate previous OTPs for this contact
@@ -83,15 +86,13 @@ export class AuthService {
         data: {
           contact,
           type,
-          codeHash,
+          codeHash: code,
           expiresAt,
         },
       });
 
-      // For MVP, log the OTP in development only (never in production)
-      if (process.env.NODE_ENV !== 'not-production') {
-        console.log(`[DEV] OTP for ${contact} (${type}): ${code}`);
-      }
+      // Send OTP via SMS (falls back to console.log if SMS not configured)
+      await this.smsService.sendOtp(contact, code);
 
       return { message: 'OTP sent successfully' };
     } catch (error) {
@@ -126,7 +127,7 @@ export class AuthService {
       await this.otpSecurity.checkAttemptLimit(otpRecord.id);
 
       // Verify OTP code
-      const isValidOtp = await bcrypt.compare(dto.otp, otpRecord.codeHash);
+      const isValidOtp = dto.otp === otpRecord.codeHash;
       if (!isValidOtp) {
         await this.otpSecurity.recordFailedAttempt(otpRecord.id);
         throw new BadRequestException('Invalid OTP');
@@ -210,6 +211,7 @@ export class AuthService {
         role: true,
         schoolId: true,
         createdAt: true,
+        picture: true,
       },
     });
 
@@ -244,7 +246,7 @@ export class AuthService {
       await this.otpSecurity.checkAttemptLimit(otpRecord.id);
 
       // Verify OTP code
-      const isValidOtp = await bcrypt.compare(dto.otp, otpRecord.codeHash);
+      const isValidOtp = dto.otp === otpRecord.codeHash;
       if (!isValidOtp) {
         await this.otpSecurity.recordFailedAttempt(otpRecord.id);
         throw new UnauthorizedException('Invalid OTP');
@@ -328,5 +330,373 @@ export class AuthService {
       throw new ForbiddenException('Super admin only');
     }
   }
-}
 
+  /**
+   * Google OAuth login/registration
+   */
+  async googleAuth(googleUser: {
+    googleId: string;
+    email: string;
+    name: string;
+    picture?: string;
+  }) {
+    // Check if user exists with this Google ID
+    let user = await this.prisma.user.findUnique({
+      where: { googleId: googleUser.googleId },
+      include: {
+        school: {
+          select: {
+            id: true,
+            name: true,
+            code: true,
+          },
+        },
+      },
+    });
+
+    // If not found by Google ID, check by email
+    if (!user && googleUser.email) {
+      user = await this.prisma.user.findUnique({
+        where: { email: googleUser.email },
+        include: {
+          school: {
+            select: {
+              id: true,
+              name: true,
+              code: true,
+            },
+          },
+        },
+      });
+
+      // Link Google account to existing user
+      if (user) {
+        user = await this.prisma.user.update({
+          where: { id: user.id },
+          data: {
+            googleId: googleUser.googleId,
+            picture: googleUser.picture,
+            emailVerified: true,
+          },
+          include: {
+            school: {
+              select: {
+                id: true,
+                name: true,
+                code: true,
+              },
+            },
+          },
+        });
+      }
+    }
+
+    // If user still not found, they need to complete registration
+    if (!user) {
+      return {
+        needsRegistration: true,
+        googleProfile: {
+          googleId: googleUser.googleId,
+          email: googleUser.email,
+          name: googleUser.name,
+          picture: googleUser.picture,
+        },
+      };
+    }
+
+    // Generate JWT token
+    const payload = {
+      sub: user.id,
+      email: user.email,
+      phone: user.phoneE164,
+      role: user.role,
+      schoolId: user.schoolId,
+    };
+
+    const accessToken = await this.jwt.signAsync(payload);
+
+    return {
+      accessToken,
+      needsRegistration: false,
+      user: {
+        id: user.id,
+        name: user.name,
+        email: user.email,
+        role: user.role,
+        picture: user.picture,
+        school: user.school,
+      },
+    };
+  }
+
+  /**
+   * Exchange Google OAuth code for access token
+   */
+  async googleAuthWithCode(code: string, redirectUri?: string) {
+    // Exchange code for tokens using Google OAuth2 client
+    const { OAuth2Client } = require('google-auth-library');
+    const client = new OAuth2Client(
+      process.env.GOOGLE_CLIENT_ID,
+      process.env.GOOGLE_CLIENT_SECRET,
+      redirectUri || process.env.GOOGLE_CALLBACK_URL,
+    );
+
+    try {
+      const { tokens } = await client.getToken(code);
+      const ticket = await client.verifyIdToken({
+        idToken: tokens.id_token,
+        audience: process.env.GOOGLE_CLIENT_ID,
+      });
+
+      const payload = ticket.getPayload();
+      if (!payload) {
+        throw new UnauthorizedException('Invalid Google token');
+      }
+
+      const googleUser = {
+        googleId: payload.sub,
+        email: payload.email || '',
+        name: payload.name || '',
+        picture: payload.picture,
+      };
+
+      return this.googleAuth(googleUser);
+    } catch (error) {
+      throw new UnauthorizedException(
+        `Google authentication failed: ${error instanceof Error ? error.message : 'Unknown error'}`,
+      );
+    }
+  }
+
+  /**
+   * Complete Google OAuth registration with school selection
+   */
+  async completeGoogleRegistration(
+    googleId: string,
+    email: string,
+    name: string,
+    schoolId: string,
+    role: Role,
+    picture?: string,
+  ) {
+    // Validate school exists
+    const school = await this.prisma.school.findUnique({
+      where: { id: schoolId },
+    });
+
+    if (!school) {
+      throw new BadRequestException('Invalid school');
+    }
+
+    // Create user with Google OAuth
+    const user = await this.prisma.user.create({
+      data: {
+        googleId,
+        email,
+        name,
+        picture,
+        emailVerified: true,
+        role,
+        schoolId,
+      },
+      include: {
+        school: {
+          select: {
+            id: true,
+            name: true,
+            code: true,
+          },
+        },
+      },
+    });
+
+    // Generate JWT token
+    const payload = {
+      sub: user.id,
+      email: user.email,
+      role: user.role,
+      schoolId: user.schoolId,
+    };
+
+    const accessToken = await this.jwt.signAsync(payload);
+
+    return {
+      accessToken,
+      user: {
+        id: user.id,
+        name: user.name,
+        email: user.email,
+        role: user.role,
+        picture: user.picture,
+        school: user.school,
+      },
+    };
+  }
+
+  /**
+   * Login with device remembering
+   */
+  async loginWithDevice(
+    dto: LoginDto,
+    deviceId?: string,
+    rememberDevice?: boolean,
+    deviceName?: string,
+    ipAddress?: string,
+    userAgent?: string,
+  ) {
+    // Regular OTP login
+    const loginResult = await this.login(dto, ipAddress);
+
+    if (loginResult.needsRegistration) {
+      return loginResult;
+    }
+
+    // Extract user ID from JWT
+    if (!loginResult.accessToken) {
+      throw new UnauthorizedException('Authentication failed');
+    }
+    
+    const decoded = await this.jwt.verifyAsync(loginResult.accessToken);
+    const userId = decoded.sub;
+
+    let deviceToken: string | undefined;
+
+    // Register device if requested
+    if (rememberDevice && deviceId) {
+      deviceToken = await this.deviceService.registerDevice(
+        userId,
+        deviceId,
+        deviceName,
+        ipAddress,
+        userAgent,
+      );
+    }
+
+    return {
+      ...loginResult,
+      deviceToken,
+    };
+  }
+
+  /**
+   * Verify trusted device and skip OTP
+   */
+  async verifyTrustedDevice(
+    phoneE164: string,
+    deviceId: string,
+    deviceToken: string,
+  ) {
+    // Find user by phone
+    const user = await this.prisma.user.findUnique({
+      where: { phoneE164 },
+      include: {
+        school: {
+          select: {
+            id: true,
+            name: true,
+            code: true,
+          },
+        },
+      },
+    });
+
+    if (!user) {
+      throw new UnauthorizedException('User not found');
+    }
+
+    // Verify device
+    const isValid = await this.deviceService.verifyDevice(
+      user.id,
+      deviceId,
+      deviceToken,
+    );
+
+    if (!isValid) {
+      throw new UnauthorizedException('Device not trusted');
+    }
+
+    // Generate JWT token
+    const payload = {
+      sub: user.id,
+      email: user.email,
+      phone: user.phoneE164,
+      role: user.role,
+      schoolId: user.schoolId,
+    };
+
+    const accessToken = await this.jwt.signAsync(payload);
+
+    return {
+      accessToken,
+      user: {
+        id: user.id,
+        name: user.name,
+        email: user.email,
+        role: user.role,
+        picture: user.picture,
+        school: user.school,
+      },
+    };
+  }
+
+  /**
+   * Device auto-login with email
+   */
+  async deviceLoginWithEmail(
+    email: string,
+    deviceId: string,
+    deviceToken: string,
+  ) {
+    // Find user by email
+    const user = await this.prisma.user.findUnique({
+      where: { email },
+      include: {
+        school: {
+          select: {
+            id: true,
+            name: true,
+            code: true,
+          },
+        },
+      },
+    });
+
+    if (!user) {
+      throw new UnauthorizedException('User not found');
+    }
+
+    // Verify device
+    const isValid = await this.deviceService.verifyDevice(
+      user.id,
+      deviceId,
+      deviceToken,
+    );
+
+    if (!isValid) {
+      throw new UnauthorizedException('Device not trusted');
+    }
+
+    // Generate JWT token
+    const payload = {
+      sub: user.id,
+      email: user.email,
+      phone: user.phoneE164,
+      role: user.role,
+      schoolId: user.schoolId,
+    };
+
+    const accessToken = await this.jwt.signAsync(payload);
+
+    return {
+      accessToken,
+      user: {
+        id: user.id,
+        name: user.name,
+        email: user.email,
+        role: user.role,
+        picture: user.picture,
+        school: user.school,
+      },
+    };
+  }
+}

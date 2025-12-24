@@ -61,6 +61,10 @@ model User {
   email       String?  @unique
   emailVerified Boolean @default(false)
 
+  // OAuth fields
+  googleId    String?  @unique
+  picture     String?  // Profile picture URL
+
   name        String
   role        Role
 
@@ -72,9 +76,34 @@ model User {
 
   teacherProfile Teacher?
   parentLinks    ParentStudent[] @relation("ParentLinks")
+  devices        TrustedDevice[]
 
   @@index([schoolId])
   @@index([role])
+  @@index([googleId])
+}
+
+model TrustedDevice {
+  id              String   @id @default(cuid())
+  userId          String
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  deviceId        String   // Client-generated device fingerprint
+  deviceName      String?  // e.g., "Chrome on Windows", "Safari on iPhone"
+  deviceToken     String   @unique  // Server-generated token for this device
+  
+  lastUsedAt      DateTime @default(now())
+  expiresAt       DateTime // Device trust expiry (e.g., 30 days)
+  
+  ipAddress       String?
+  userAgent       String?
+  
+  createdAt       DateTime @default(now())
+
+  @@unique([userId, deviceId])
+  @@index([userId])
+  @@index([deviceToken])
+  @@index([expiresAt])
 }
 
 model Student {

@@ -5,7 +5,10 @@ import { PassportModule } from '@nestjs/passport';
 import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
 import { JwtStrategy } from './jwt.strategy';
+import { GoogleStrategy } from './google.strategy';
 import { OtpSecurityService } from './services/otp-security.service';
+import { SmsService } from './services/sms.service';
+import { DeviceService } from './services/device.service';
 import type { SignOptions } from 'jsonwebtoken';
 
 @Module({
@@ -27,7 +30,14 @@ import type { SignOptions } from 'jsonwebtoken';
     }),
   ],
   controllers: [AuthController],
-  providers: [AuthService, OtpSecurityService, JwtStrategy],
+  providers: [
+    AuthService,
+    OtpSecurityService,
+    SmsService,
+    DeviceService,
+    JwtStrategy,
+    GoogleStrategy,
+  ],
   exports: [AuthService],
 })
 export class AuthModule {}
